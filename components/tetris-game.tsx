@@ -526,6 +526,7 @@ export default function TetrisGame() {
         }
       }
 
+
       for (let y = 0; y < currentPiece.shape.length; y++) {
         for (let x = 0; x < currentPiece.shape[y].length; x++) {
           if (currentPiece.shape[y][x]) {
@@ -665,7 +666,7 @@ export default function TetrisGame() {
         </div>
 
         <div className="flex flex-col gap-0.5 sm:gap-2 lg:gap-4 flex-shrink-0">
-          <div className="relative flex justify-center">
+          <div className="flex justify-center mb-26">
             <canvas
               ref={canvasRef}
               width={BOARD_WIDTH * BLOCK_SIZE}
@@ -679,45 +680,22 @@ export default function TetrisGame() {
           </div>
           {/* ЭНЭ ХЭСЭГТ гар утасны товчлууруудыг нэмнэ */}
   {/* Гар утас / Таблет товчлуурууд */}
-<div className="flex flex-wrap justify-center gap-1 sm:gap-2 mt-2 sm:mt-4 lg:hidden">
-  <Button
-    onClick={moveLeft}
-    className="w-10 h-10 text-base sm:w-12 sm:h-12 bg-zinc-700 hover:bg-zinc-600"
-  >
-    ◀
-  </Button>
-  <Button
-    onClick={moveDown}
-    className="w-10 h-10 text-base sm:w-12 sm:h-12 bg-zinc-700 hover:bg-zinc-600"
-  >
-    ▼
-  </Button>
-  <Button
-    onClick={moveRight}
-    className="w-10 h-10 text-base sm:w-12 sm:h-12 bg-zinc-700 hover:bg-zinc-600"
-  >
-    ▶
-  </Button>
-  <Button
-    onClick={rotatePiece}
-    className="w-10 h-10 text-base sm:w-12 sm:h-12 bg-blue-700 hover:bg-blue-600"
-  >
-    ⟳
-  </Button>
-  <Button
-    onClick={holdCurrentPiece}
-    className="w-10 h-10 text-base sm:w-12 sm:h-12 bg-yellow-700 hover:bg-yellow-600"
-  >
-    H
-  </Button>
-  <Button
-    onClick={hardDrop}
-    className="w-10 h-10 text-base sm:w-12 sm:h-12 bg-red-700 hover:bg-red-600"
-  >
-    ⇩
-  </Button>
+<div className="flex flex-col justify-center items-center gap-2 mt-2 sm:mt-4 lg:hidden">
+  {/* Дээд эгнээ */}
+  <div className="flex justify-center gap-2">
+    <Button onClick={moveLeft} className="w-16 h-16 text-2xl bg-zinc-700 hover:bg-zinc-600">◀</Button>
+    <Button onClick={moveRight} className="w-16 h-16 text-2xl bg-zinc-700 hover:bg-zinc-600">▶</Button>
+    <Button onClick={moveDown} className="w-16 h-16 text-2xl bg-zinc-700 hover:bg-zinc-600">▼</Button>
+    <Button onClick={rotatePiece} className="w-16 h-16 text-2xl bg-blue-700 hover:bg-blue-600">⟳</Button>
+  </div>
+
+  {/* Доод эгнээ */}
+  <div className="flex justify-center gap-2">
+    <Button onClick={holdCurrentPiece} className="w-16 h-16 text-2xl bg-yellow-700 hover:bg-yellow-600">H</Button>
+    <Button onClick={hardDrop} className="w-16 h-16 text-2xl bg-red-700 hover:bg-red-600">⇩</Button>
+  </div>
 </div>
-        </div>
+</div>
 
         <div className="flex flex-col gap-0.5 sm:gap-2 lg:gap-4 w-16 sm:w-32 lg:w-52 flex-shrink-0">
           <Card className="p-0.5 sm:p-2 lg:p-4 bg-zinc-900 border-zinc-800">
