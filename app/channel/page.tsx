@@ -96,9 +96,7 @@ function HomeTab() {
       setOnlinePlayers(count)
     })
 
-    return () => {
-      unsubscribe()
-    }
+    return () => unsubscribe()
   }, [])
 
   if (loading) {
@@ -188,23 +186,35 @@ function HomeTab() {
 
 function LeaderboardsTab() {
   const [scores, setScores] = useState<LeaderboardEntry[]>([])
+  const [filteredScores, setFilteredScores] = useState<LeaderboardEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [searchTerm, setSearchTerm] = useState("")
 
   useEffect(() => {
     getTopScores(20)
       .then((data) => {
         setScores(data)
+        setFilteredScores(data)
         setError(null)
       })
       .catch((err) => {
         console.error("[v0] Error loading scores:", err)
         setError("Leaderboard өгөгдөл татахад алдаа гарлаа. Интернэт холболтоо шалгана уу.")
       })
-      .finally(() => {
-        setLoading(false)
-      })
+      .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    if (!searchTerm) {
+      setFilteredScores(scores)
+    } else {
+      const term = searchTerm.toLowerCase()
+      setFilteredScores(
+        scores.filter((entry) => entry.userName.toLowerCase().includes(term))
+      )
+    }
+  }, [searchTerm, scores])
 
   if (loading) {
     return (
@@ -232,15 +242,26 @@ function LeaderboardsTab() {
       <div>
         <h2 className="text-3xl font-bold">RANK</h2>
         <p className="text-sm text-muted-foreground mt-1">Нэг тоглолтын хамгийн өндөр оноогоор эрэмблэгдсэн</p>
+
+        {/* Search Box */}
+        <div className="mt-4">
+          <input
+            type="text"
+            placeholder="Тоглогчийн нэрээр хайх..."
+            className="w-full p-2 border rounded-lg bg-background text-foreground placeholder:text-muted-foreground"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
       </div>
 
-      {scores.length === 0 ? (
+      {filteredScores.length === 0 ? (
         <div className="text-center py-12">
-          <p className="text-muted-foreground">Одоогоор оноо байхгүй байна. Эхний тоглогч болоорой!</p>
+          <p className="text-muted-foreground">Одоогоор хайлтанд тохирох тоглогч байхгүй байна.</p>
         </div>
       ) : (
         <div className="space-y-3">
-          {scores.map((entry, index) => {
+          {filteredScores.map((entry, index) => {
             const rank = getRankByScore(entry.bestScore)
             return (
               <div
@@ -256,27 +277,17 @@ function LeaderboardsTab() {
                     </span>
                   </div>
 
-                  {/* Rank Badge */}
+                  {/* Rank Badge / Profile */}
                   <div className="flex-shrink-0">
-  <div
-    className="w-10 h-10 rounded-lg border-2 flex items-center justify-center overflow-hidden"
-    style={{ borderColor: rank.color }}
-  >
-    {/* Хэрвээ profilePictureURL байгаа бол харуулна */}
-    {entry.profilePictureURL ? (
-      <img
-        src={entry.profilePictureURL}
-        alt={entry.userName}
-        className="w-full h-full object-cover"
-      />
-    ) : (
-      // Зураг байхгүй бол initials харуулна
-      <span className="text-lg font-bold text-primary">
-        {entry.userName[0].toUpperCase()}
-      </span>
-    )}
-  </div>
-</div>
+                    <div className="w-10 h-10 rounded-lg border-2 flex items-center justify-center overflow-hidden" style={{ borderColor: rank.color }}>
+                      {entry.profilePictureURL ? (
+                        <img src={entry.profilePictureURL} alt={entry.userName} className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-lg font-bold text-primary">{entry.userName[0].toUpperCase()}</span>
+                      )}
+                    </div>
+                  </div>
+
                   {/* Player Info */}
                   <div className="flex-1 min-w-0">
                     <div className="font-bold text-lg truncate">{entry.userName}</div>
@@ -288,20 +299,20 @@ function LeaderboardsTab() {
                   </div>
 
                   {/* Stats */}
-<div className="flex flex-col sm:flex-row gap-1 sm:gap-6 text-[8px] sm:text-sm">
-  <div className="text-center">
-    <div className="text-muted-foreground text-[8px] sm:text-xs">Best Score</div>
-    <div className="font-mono font-semibold text-primary text-[10px] sm:text-base">{entry.bestScore.toLocaleString()}</div>
-  </div>
-  <div className="text-center">
-    <div className="text-muted-foreground text-[8px] sm:text-xs">Games</div>
-    <div className="font-mono font-semibold text-[10px] sm:text-base">{entry.totalGames}</div>
-  </div>
-  <div className="text-center">
-    <div className="text-muted-foreground text-[8px] sm:text-xs">Lines</div>
-    <div className="font-mono font-semibold text-[10px] sm:text-base">{entry.lines.toLocaleString()}</div>
-  </div>
-</div>
+                  <div className="flex flex-col sm:flex-row gap-1 sm:gap-6 text-[8px] sm:text-sm">
+                    <div className="text-center">
+                      <div className="text-muted-foreground text-[8px] sm:text-xs">Best Score</div>
+                      <div className="font-mono font-semibold text-primary text-[10px] sm:text-base">{entry.bestScore.toLocaleString()}</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-muted-foreground text-[8px] sm:text-xs">Games</div>
+                      <div className="font-mono font-semibold text-[10px] sm:text-base">{entry.totalGames}</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-muted-foreground text-[8px] sm:text-xs">Lines</div>
+                      <div className="font-mono font-semibold text-[10px] sm:text-base">{entry.lines.toLocaleString()}</div>
+                    </div>
+                  </div>
                 </div>
               </div>
             )
