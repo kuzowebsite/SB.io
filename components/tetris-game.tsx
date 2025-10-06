@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/lib/auth-context"
-import { saveGameScore } from "@/lib/game-service"
+import { saveGameScore, getUserProfile } from "@/lib/game-service"
 import Leaderboard from "@/components/leaderboard"
 
 const BLOCK_SIZE = 30
@@ -123,6 +123,8 @@ export default function TetrisGame() {
   const [isSavingScore, setIsSavingScore] = useState(false)
   const [scoreSaved, setScoreSaved] = useState(false)
   const [showLeaderboard, setShowLeaderboard] = useState(false)
+  const [personalBest, setPersonalBest] = useState<number>(0)
+  const [isNewRecord, setIsNewRecord] = useState(false)
 
   const boardColors = useRef<string[][]>(Array.from({ length: BOARD_HEIGHT }, () => Array(BOARD_WIDTH).fill("")))
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
@@ -155,6 +157,63 @@ export default function TetrisGame() {
     oscillator.stop(ctx.currentTime + 0.2)
   }, [])
 
+  const playGameOverSound = useCallback(() => {
+    if (!audioContextRef.current) return
+
+    const ctx = audioContextRef.current
+    const oscillator = ctx.createOscillator()
+    const gainNode = ctx.createGain()
+
+    oscillator.connect(gainNode)
+    gainNode.connect(ctx.destination)
+
+    oscillator.type = "sawtooth"
+    oscillator.frequency.setValueAtTime(440, ctx.currentTime)
+    oscillator.frequency.exponentialRampToValueAtTime(220, ctx.currentTime + 0.5)
+    oscillator.frequency.exponentialRampToValueAtTime(110, ctx.currentTime + 1)
+
+    gainNode.gain.setValueAtTime(0.4, ctx.currentTime)
+    gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 1)
+
+    oscillator.start(ctx.currentTime)
+    oscillator.stop(ctx.currentTime + 1)
+  }, [])
+
+  const playFireworksSound = useCallback(() => {
+    if (!audioContextRef.current) return
+
+    const ctx = audioContextRef.current
+
+    // Create multiple explosions
+    for (let i = 0; i < 5; i++) {
+      setTimeout(() => {
+        const oscillator = ctx.createOscillator()
+        const gainNode = ctx.createGain()
+        const filter = ctx.createBiquadFilter()
+
+        oscillator.connect(filter)
+        filter.connect(gainNode)
+        gainNode.connect(ctx.destination)
+
+        oscillator.type = "sawtooth"
+        filter.type = "lowpass"
+
+        // Explosion sound
+        oscillator.frequency.setValueAtTime(800 + Math.random() * 400, ctx.currentTime)
+        oscillator.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.3)
+
+        filter.frequency.setValueAtTime(2000, ctx.currentTime)
+        filter.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.3)
+
+        gainNode.gain.setValueAtTime(0.3, ctx.currentTime)
+        gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3)
+
+        oscillator.start(ctx.currentTime)
+        oscillator.stop(ctx.currentTime + 0.3)
+      }, i * 200)
+    }
+  }, [])
+
   useEffect(() => {
     document.body.style.overflow = "hidden"
     document.documentElement.style.overflow = "hidden"
@@ -179,6 +238,16 @@ export default function TetrisGame() {
       document.removeEventListener("touchstart", preventDoubleTapZoom)
     }
   }, [])
+
+  useEffect(() => {
+    if (user) {
+      getUserProfile(user.uid).then((profile) => {
+        if (profile) {
+          setPersonalBest(profile.bestScore)
+        }
+      })
+    }
+  }, [user])
 
   const checkCollision = useCallback(
     (piece: Tetromino, pos: Position): boolean => {
@@ -321,6 +390,11 @@ export default function TetrisGame() {
 
       if (checkCollision(newPiece, startPos)) {
         setGameOver(true)
+        playGameOverSound()
+        if (score > personalBest) {
+          setIsNewRecord(true)
+          playFireworksSound()
+        }
       } else {
         setCurrentPiece(newPiece)
         setPosition(startPos)
@@ -328,7 +402,20 @@ export default function TetrisGame() {
         setCanHold(true)
       }
     }
-  }, [position, currentPiece, nextQueue, checkCollision, mergePiece, clearLines, gameOver, isClearing])
+  }, [
+    position,
+    currentPiece,
+    nextQueue,
+    checkCollision,
+    mergePiece,
+    clearLines,
+    gameOver,
+    isClearing,
+    playGameOverSound,
+    score,
+    personalBest,
+    playFireworksSound,
+  ])
 
   const moveLeft = useCallback(() => {
     if (gameOver || isClearing) return
@@ -368,13 +455,31 @@ export default function TetrisGame() {
 
     if (checkCollision(newPiece, startPos)) {
       setGameOver(true)
+      playGameOverSound()
+      if (score > personalBest) {
+        setIsNewRecord(true)
+        playFireworksSound()
+      }
     } else {
       setCurrentPiece(newPiece)
       setPosition(startPos)
       setPieces((prev) => prev + 1)
       setCanHold(true)
     }
-  }, [position, currentPiece, nextQueue, checkCollision, mergePiece, clearLines, gameOver, isClearing])
+  }, [
+    position,
+    currentPiece,
+    nextQueue,
+    checkCollision,
+    mergePiece,
+    clearLines,
+    gameOver,
+    isClearing,
+    playGameOverSound,
+    score,
+    personalBest,
+    playFireworksSound,
+  ])
 
   const resetGame = () => {
     setBoard(createEmptyBoard())
@@ -396,6 +501,7 @@ export default function TetrisGame() {
     setIsClearing(false)
     setScoreSaved(false)
     setIsSavingScore(false)
+    setIsNewRecord(false)
   }
 
   useEffect(() => {
@@ -692,7 +798,7 @@ export default function TetrisGame() {
         pieces,
         time: elapsedTime,
         date: new Date(),
-        xp: 0,
+        xp: 0, // Assuming xp is not tracked in this game logic
       })
         .then(() => {
           setScoreSaved(true)
@@ -710,8 +816,163 @@ export default function TetrisGame() {
     <div className="min-h-screen flex items-start sm:items-center justify-center px-2 py-2 sm:p-2 lg:p-8 bg-black fixed inset-0 overflow-hidden">
       {showLeaderboard && <Leaderboard onClose={() => setShowLeaderboard(false)} />}
 
+      {gameOver && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="relative w-full max-w-[95vw] sm:max-w-md lg:max-w-2xl">
+            {[...Array(30)].map((_, i) => (
+              <div
+                key={i}
+                className="absolute animate-bounce pointer-events-none"
+                style={{
+                  left: `${Math.random() * 100}%`,
+                  top: `${Math.random() * 100}%`,
+                  animationDelay: `${Math.random() * 2}s`,
+                  animationDuration: `${2 + Math.random() * 2}s`,
+                }}
+              >
+                <div
+                  className="w-2 h-2 sm:w-3 sm:h-3 rotate-45"
+                  style={{
+                    backgroundColor: ["#ff0080", "#00ff80", "#0080ff", "#ffff00", "#ff8000"][
+                      Math.floor(Math.random() * 5)
+                    ],
+                  }}
+                />
+              </div>
+            ))}
+
+            {isNewRecord && (
+              <>
+                {[...Array(10)].map((_, i) => (
+                  <div
+                    key={`firework-${i}`}
+                    className="absolute animate-firework pointer-events-none"
+                    style={{
+                      left: `${20 + Math.random() * 60}%`,
+                      top: `${20 + Math.random() * 60}%`,
+                      animationDelay: `${i * 0.3}s`,
+                    }}
+                  >
+                    <div
+                      className="w-4 h-4 rounded-full"
+                      style={{
+                        backgroundColor: ["#ff0080", "#00ff80", "#0080ff", "#ffff00", "#ff8000"][i % 5],
+                        boxShadow: `0 0 20px ${["#ff0080", "#00ff80", "#0080ff", "#ffff00", "#ff8000"][i % 5]}`,
+                      }}
+                    />
+                  </div>
+                ))}
+              </>
+            )}
+
+            <Card className="relative bg-gradient-to-br from-purple-900 via-blue-900 to-cyan-900 border-4 border-yellow-400 shadow-2xl overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/20 via-purple-500/20 to-pink-500/20 animate-electric-pulse" />
+              <div className="absolute inset-0 bg-gradient-to-br from-yellow-400/10 via-transparent to-cyan-400/10 animate-electric-shimmer" />
+
+              <div className="relative z-10 p-4 sm:p-6 lg:p-6 text-center space-y-3 sm:space-y-4 lg:space-y-4">
+                <div className="relative">
+                  <div className="absolute inset-0 bg-gradient-to-r from-red-500 via-yellow-500 to-red-500 blur-xl opacity-50 animate-pulse" />
+                  <h1 className="relative text-3xl sm:text-4xl lg:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-red-400 via-yellow-300 to-red-400 drop-shadow-[0_0_20px_rgba(255,255,0,0.8)] animate-pulse">
+                    ТОГЛООМ ДУУССАН
+                  </h1>
+                </div>
+
+                <div className="flex justify-center">
+                  <div className="relative">
+                    <div className="absolute inset-0 bg-yellow-400 blur-2xl opacity-60 animate-electric-glow" />
+                    <div className="relative text-5xl sm:text-6xl lg:text-7xl animate-bounce">👑</div>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-xs sm:text-sm font-bold text-cyan-300 uppercase tracking-widest">Таны оноо</div>
+                  <div className="relative">
+                    <div className="absolute inset-0 bg-gradient-to-r from-cyan-500 via-blue-500 to-purple-500 blur-2xl opacity-50" />
+                    <div className="relative text-5xl sm:text-6xl lg:text-7xl xl:text-8xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-blue-300 to-purple-300 drop-shadow-[0_0_30px_rgba(0,255,255,0.8)]">
+                      {score}
+                    </div>
+                  </div>
+
+                  <div className="text-xs sm:text-sm text-zinc-400">
+                    Таны рекорд: <span className="font-bold text-yellow-400">{personalBest}</span>
+                  </div>
+                </div>
+
+                {isNewRecord && (
+                  <div className="py-2">
+                    <div className="text-xl sm:text-2xl lg:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-green-400 via-emerald-300 to-green-400 drop-shadow-[0_0_10px_rgba(0,255,0,0.6)] animate-pulse">
+                      ⭐ ШИНЭ РЕКОРД ⭐
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-3 gap-2 sm:gap-4 py-2 sm:py-4">
+                  <div className="space-y-1">
+                    <div className="text-[10px] sm:text-xs text-cyan-400 uppercase">Мөр</div>
+                    <div className="text-lg sm:text-xl lg:text-2xl font-bold text-white">{lines}</div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-[10px] sm:text-xs text-purple-400 uppercase">Түвшин</div>
+                    <div className="text-lg sm:text-xl lg:text-2xl font-bold text-white">{level}</div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-[10px] sm:text-xs text-pink-400 uppercase">Цаг</div>
+                    <div className="text-lg sm:text-xl lg:text-2xl font-bold text-white">{formatTime(elapsedTime)}</div>
+                  </div>
+                </div>
+
+                {isSavingScore && (
+                  <div className="text-yellow-300 text-xs sm:text-sm animate-pulse">⏳ Оноо хадгалж байна...</div>
+                )}
+                {scoreSaved && (
+                  <div className="text-green-300 text-xs sm:text-sm font-bold animate-bounce">
+                    ✓ Оноо амжилттай хадгалагдлаа!
+                  </div>
+                )}
+
+                <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 pt-2 sm:pt-4">
+                  <Button
+                    onClick={() => setShowLeaderboard(true)}
+                    onTouchStart={(e) => {
+                      e.preventDefault()
+                      setShowLeaderboard(true)
+                    }}
+                    className="flex-1 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white font-bold py-4 sm:py-5 lg:py-6 text-sm sm:text-base lg:text-lg shadow-lg shadow-pink-500/50 border-2 border-pink-400 pointer-events-auto cursor-pointer"
+                    style={{ touchAction: "manipulation" }}
+                  >
+                    🏆 Тэргүүлэгчид
+                  </Button>
+                  <Button
+                    onClick={resetGame}
+                    onTouchStart={(e) => {
+                      e.preventDefault()
+                      resetGame()
+                    }}
+                    className="flex-1 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold py-4 sm:py-5 lg:py-6 text-sm sm:text-base lg:text-lg shadow-lg shadow-cyan-500/50 border-2 border-cyan-400 pointer-events-auto cursor-pointer"
+                    style={{ touchAction: "manipulation" }}
+                  >
+                    🔄 Дахин
+                  </Button>
+                  <Button
+                    onClick={() => router.push("/")}
+                    onTouchStart={(e) => {
+                      e.preventDefault()
+                      router.push("/")
+                    }}
+                    className="flex-1 bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold py-4 sm:py-5 lg:py-6 text-sm sm:text-base lg:text-lg shadow-lg shadow-red-500/50 border-2 border-red-400 pointer-events-auto cursor-pointer"
+                    style={{ touchAction: "manipulation" }}
+                  >
+                    🚪 Гарах
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-row gap-0.5 sm:gap-2 lg:gap-4 items-start justify-center w-full max-w-7xl">
-        <div className="flex flex-col gap-1 sm:gap-2 lg:gap-4 w-14 sm:w-32 lg:w-52 flex-shrink-0 translate-x-8 sm:translate-x-0">
+        <div className="flex flex-col gap-1 sm:gap-2 lg:gap-4 w-14 sm:w-32 lg:w-52 flex-shrink-0 translate-x-8 sm:translate-x-0 translate-y-10 lg:translate-x-16">
           <Card className="w-20 sm:w-24 lg:w-32 p-1 sm:p-2 lg:p-4 bg-zinc-900 border-zinc-600">
             <h2 className="text-[9px] sm:text-xs lg:text-sm font-bold mb-1 sm:mb-2 lg:mb-3 text-white uppercase tracking-wider">
               Hold
@@ -721,7 +982,7 @@ export default function TetrisGame() {
             </div>
           </Card>
 
-          <Card className="w-20 sm:w-24 lg:w-32 p-1 sm:p-2 lg:p-4 bg-zinc-900 border-zinc-800 text-white space-y-1 sm:space-y-2 lg:space-y-3">
+          <Card className="w-20 sm:w-24 lg:w-32 p-1 sm:p-2 lg:p-4 bg-zinc-900 border-zinc-800 text-white space-y-1 sm:space-y-2 lg:space-y-3 lg:-translate-y-3">
             <div className="flex justify-between items-baseline">
               <span className="text-[8px] sm:text-xs text-zinc-400 uppercase">Inputs: </span>
               <span className="text-[8px] sm:text-sm lg:text-lg font-bold">{inputs}</span>
@@ -750,7 +1011,7 @@ export default function TetrisGame() {
               setShowLeaderboard(true)
             }}
             variant="outline"
-            className="w-20 sm:w-24 lg:w-32 text-[9px] sm:text-sm bg-yellow-800 border-yellow-700 text-white hover:bg-yellow-700 active:bg-yellow-600 py-1 pointer-events-auto cursor-pointer"
+            className="w-20 sm:w-24 lg:w-32 text-[9px] sm:text-sm bg-yellow-800 border-yellow-700 text-white hover:bg-yellow-700 active:bg-yellow-600 py-1 pointer-events-auto cursor-pointer lg:-translate-y-4"
             style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent" }}
           >
             Тэргүүлэгчид
@@ -763,7 +1024,7 @@ export default function TetrisGame() {
                 resetGame()
               }}
               variant="outline"
-              className="w-20 sm:w-24 lg:w-32 text-[9px] sm:text-sm bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700 active:bg-zinc-600 py-1 pointer-events-auto cursor-pointer"
+              className="w-20 sm:w-24 lg:w-32 text-[9px] sm:text-sm bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700 active:bg-zinc-600 py-1 pointer-events-auto cursor-pointer lg:-translate-y-5"
               style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent" }}
             >
               Шинэ тоглоом
@@ -776,7 +1037,7 @@ export default function TetrisGame() {
               router.push("/")
             }}
             variant="outline"
-            className="w-20 sm:w-24 lg:w-32 text-[9px] sm:text-sm bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700 active:bg-zinc-600 py-1 pointer-events-auto cursor-pointer"
+            className="w-20 sm:w-24 lg:w-32 text-[9px] sm:text-sm bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700 active:bg-zinc-600 py-1 pointer-events-auto cursor-pointer lg:-translate-y-6"
             style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent" }}
           >
             Гарах
@@ -789,14 +1050,17 @@ export default function TetrisGame() {
               ref={canvasRef}
               width={BOARD_WIDTH * BLOCK_SIZE}
               height={BOARD_HEIGHT * BLOCK_SIZE}
-              className="border-2 border-zinc-800 rounded w-[130px] sm:w-[240px] lg:w-[300px] h-auto"
+              className="border-2 border-zinc-800 rounded w-[130px] sm:w-[240px] lg:w-[300px] h-auto translate-y-14"
               style={{ imageRendering: "pixelated", touchAction: "none" }}
             />
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none flex flex-col items-center gap-1">
               <div className="text-3xl sm:text-6xl lg:text-9xl font-bold text-zinc-800/50">{score}</div>
+              {personalBest > 0 && (
+                <div className="text-xs sm:text-sm lg:text-xl font-bold text-zinc-700/50">РЕКОРД: {personalBest}</div>
+              )}
             </div>
           </div>
-          <div className="flex flex-col justify-center items-center gap-2 mt-2 sm:mt-4 lg:hidden transform translate-y-10 relative z-50 pointer-events-auto">
+          <div className="flex flex-col justify-center items-center gap-2 mt-2 sm:mt-4 lg:hidden transform translate-y-10 relative z-50 pointer-events-auto translate-y-20">
             <div className="flex justify-center gap-2 pointer-events-auto">
               <Button
                 onClick={moveLeft}
@@ -871,7 +1135,7 @@ export default function TetrisGame() {
         </div>
 
         <div className="flex flex-col gap-1 sm:gap-2 lg:gap-4 w-14 sm:w-32 lg:w-52 flex-shrink-0">
-          <Card className="w-20 sm:w-24 lg:w-32 p-1 sm:p-2 lg:p-3 bg-zinc-900 border-zinc-800 -translate-x-11 sm:translate-x-0">
+          <Card className="w-20 sm:w-24 lg:w-32 p-1 sm:p-2 lg:p-3 bg-zinc-900 border-zinc-800 -translate-x-14 sm:translate-x-0 translate-y-20 lg:translate-x-4">
             <h2 className="text-[9px] sm:text-xs lg:text-sm font-bold mb-1 sm:mb-2 lg:mb-3 text-white uppercase tracking-wider">
               Next
             </h2>
@@ -887,25 +1151,6 @@ export default function TetrisGame() {
             </div>
           </Card>
 
-          {gameOver && (
-            <Card className="w-20 sm:w-24 lg:w-32 p-1 sm:p-2 lg:p-3 bg-zinc-900 border-zinc-800 -translate-x-11 sm:translate-x-0">
-              <h2 className="text-[9px] font-bold text-red-500 mb-1">Дууссан!</h2>
-              <p className="text-[9px] sm:text-sm text-white mb-2 sm:mb-3 lg:mb-1">Оноо: {score}</p>
-              {isSavingScore && <p className="text-[6px] sm:text-xs text-yellow-400">Оноо хадгалж байна...</p>}
-              {scoreSaved && <p className="text-[6px] sm:text-xs text-green-400 mb-2">Оноо хадгалагдлаа!</p>}
-              <Button
-                onClick={resetGame}
-                onTouchStart={(e) => {
-                  e.preventDefault()
-                  resetGame()
-                }}
-                className="w-full text-[6px] sm:text-sm bg-red-600 hover:bg-red-700 active:bg-red-800 py-1 pointer-events-auto cursor-pointer"
-                style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent" }}
-              >
-                Дахих
-              </Button>
-            </Card>
-          )}
         </div>
       </div>
     </div>
