@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { getUserProfile, type UserProfile } from "@/lib/game-service"
-import { getRankByScore, getXPProgress } from "@/lib/rank-system"
+import { getRankByScore, getXPProgress, type Rank } from "@/lib/rank-system"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { EditProfileModal } from "./edit-profile-modal"
 
@@ -45,7 +45,7 @@ export function ProfileDropdown() {
 
   if (!user) return null
 
-  const currentRank = profile ? getRankByScore(profile.bestScore) : getRankByScore(0)
+  const currentRank: Rank = profile ? getRankByScore(profile.bestScore) : getRankByScore(0)
   const levelProgress = profile ? getXPProgress(profile.totalXP) : getXPProgress(0)
 
   return (
@@ -55,7 +55,7 @@ export function ProfileDropdown() {
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-accent/10 transition-colors"
       >
-        <Avatar className="w-8 h-8 border-2 animate-pulse border-primary">
+        <Avatar className="w-8 h-8 border-2 border-primary animate-pulse">
           <AvatarImage src={profile?.profilePictureURL || user.photoURL || undefined} />
           <AvatarFallback className="bg-primary/20 text-primary font-bold">
             {(user.displayName || user.email || "U")[0].toUpperCase()}
@@ -78,7 +78,7 @@ export function ProfileDropdown() {
           {/* Profile Header */}
           <div className="p-4 border-b border-primary/20 bg-gradient-to-br from-primary/10 to-transparent">
             <div className="flex items-center gap-3 mb-3">
-              <Avatar className="w-12 h-12 border-2 animate-pulse border-muted-foreground">
+              <Avatar className="w-12 h-12 border-2 border-muted-foreground animate-pulse">
                 <AvatarImage src={profile?.profilePictureURL || user.photoURL || undefined} />
                 <AvatarFallback className="bg-primary/20 text-primary font-bold text-lg">
                   {(user.displayName || user.email || "U")[0].toUpperCase()}
@@ -86,12 +86,20 @@ export function ProfileDropdown() {
               </Avatar>
               <div className="flex-1 min-w-0">
                 <div className="font-bold text-muted-foreground">{user.displayName || user.email}</div>
-                <div className="text-xs animate-pulse font-semibold truncate" style={{ color: currentRank.color }}>
-                  {currentRank.icon} {currentRank.name}
+
+                {/* Rank with Image */}
+                <div className="text-xs animate-pulse font-semibold truncate flex items-center gap-1 mt-1">
+                  <img
+                    src={currentRank.icon || "/placeholder.svg"} // /public/rankavatarimage/ доторх зураг
+                    alt={currentRank.name}
+                    className="w-4 h-4 rounded-full object-cover"
+                  />
+                  <span style={{ color: currentRank.color }}>{currentRank.name}</span>
                 </div>
               </div>
             </div>
 
+            {/* XP Progress */}
             <div className="space-y-1">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">Level {levelProgress.level}</span>
@@ -99,9 +107,34 @@ export function ProfileDropdown() {
                   {levelProgress.current.toLocaleString()} / {levelProgress.next.toLocaleString()} XP
                 </span>
               </div>
-              <div className="h-2 bg-muted/20 rounded-full overflow-hidden">
+              <div className="relative h-2 bg-muted/20 rounded-full overflow-hidden">
+                {/* Base progress bar with gradient */}
                 <div
-                  className="h-full bg-gradient-to-r from-primary to-secondary transition-all duration-300"
+                  className="h-full bg-gradient-to-r from-primary to-secondary transition-all duration-300 relative overflow-hidden"
+                  style={{ width: `${Math.min(levelProgress.percentage, 100)}%` }}
+                >
+                  {/* Pulsing glow layer */}
+                  <div className="absolute inset-0 bg-white/10 animate-electric-pulse" />
+
+                  {/* Multiple electric sparks sliding from left to right */}
+                  <div className="absolute inset-0 overflow-hidden">
+                    {/* First spark - fast */}
+                    <div className="absolute h-full w-16 bg-gradient-to-r from-transparent via-white to-transparent opacity-90 animate-electric-spark-1 blur-[1px]" />
+
+                    {/* Second spark - medium speed, delayed */}
+                    <div className="absolute h-full w-12 bg-gradient-to-r from-transparent via-white/80 to-transparent opacity-80 animate-electric-spark-2" />
+
+                    {/* Third spark - slow, more delayed */}
+                    <div className="absolute h-full w-20 bg-gradient-to-r from-transparent via-white/60 to-transparent opacity-70 animate-electric-spark-3 blur-[2px]" />
+                  </div>
+
+                  {/* Top shine highlight */}
+                  <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/80 to-transparent animate-electric-shimmer" />
+                </div>
+
+                {/* Outer glow effect with pulse */}
+                <div
+                  className="absolute top-0 left-0 h-full bg-gradient-to-r from-primary/50 to-secondary/50 blur-sm transition-all duration-300 pointer-events-none animate-electric-glow"
                   style={{ width: `${Math.min(levelProgress.percentage, 100)}%` }}
                 />
               </div>
@@ -116,7 +149,9 @@ export function ProfileDropdown() {
           <div className="p-4 grid grid-cols-2 gap-3 border-b border-primary/20">
             <div className="bg-secondary/5 rounded-lg p-3">
               <div className="text-xs text-muted-foreground mb-1">Best Score</div>
-              <div className="text-lg font-bold animate-pulse text-muted-foreground">{profile?.bestScore.toLocaleString() || 0}</div>
+              <div className="text-lg font-bold animate-pulse text-muted-foreground">
+                {profile?.bestScore.toLocaleString() || 0}
+              </div>
             </div>
             <div className="bg-secondary/5 rounded-lg p-3">
               <div className="text-xs text-muted-foreground mb-1">Мөр</div>
