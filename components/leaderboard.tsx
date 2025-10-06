@@ -17,23 +17,47 @@ export default function Leaderboard({ onClose }: LeaderboardProps) {
   useEffect(() => {
     async function fetchLeaderboard() {
       setLoading(true)
-      const data = await getLeaderboard(20)
-      setScores(data)
-      setLoading(false)
+      try {
+        const data = await getLeaderboard(20)
+        setScores(data)
+      } catch (err) {
+        console.error("Leaderboard уншихад алдаа гарлаа:", err)
+        setScores([])
+      } finally {
+        setLoading(false)
+      }
     }
     fetchLeaderboard()
   }, [])
 
   return (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-      <Card className="bg-zinc-900 border-zinc-700 p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-white">Тэргүүлэгчид</h2>
+    <div
+      className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
+      onClick={onClose}
+      onTouchStart={(e) => {
+        e.preventDefault()
+        onClose()
+      }}
+      style={{ touchAction: "manipulation" }}
+    >
+      <Card
+        className="bg-zinc-900 border-zinc-700 p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto transform -translate-y-30"
+        onClick={(e) => e.stopPropagation()}
+        onTouchStart={(e) => e.stopPropagation()}
+      >
+        <div className="flex justify-between items-center mb-6 ">
+          <h2 className="text-2xl font-bold text-white ">Тэргүүлэгчид</h2>
           <Button
             onClick={onClose}
+            onTouchStart={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              onClose()
+            }}
             variant="ghost"
             size="icon"
-            className="text-zinc-400 hover:text-white touch-manipulation pointer-events-auto"
+            className="text-zinc-400 hover:text-white pointer-events-auto cursor-pointer"
+            style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent" }}
           >
             <X className="w-6 h-6" />
           </Button>
