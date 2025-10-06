@@ -141,7 +141,7 @@ function HomeTab() {
               style={{ borderColor: rank.color + "40" }}
             >
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-2xl">{rank.icon}</span>
+                <img src={rank.icon} alt={rank.name} className="w-6 h-6 rounded-full object-cover" />
                 <span className="font-bold text-xs" style={{ color: rank.color }}>
                   {rank.name}
                 </span>
@@ -163,7 +163,7 @@ function HomeTab() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-3 mb-4">
-              <span className="text-4xl">{selectedRank.icon}</span>
+              <img src={selectedRank.icon} alt={selectedRank.name} className="w-12 h-12 rounded-full object-cover" />
               <div>
                 <h3 className="text-xl font-bold" style={{ color: selectedRank.color }}>
                   {selectedRank.name}
@@ -199,7 +199,7 @@ function LeaderboardsTab() {
         setError(null)
       })
       .catch((err) => {
-        console.error("[v0] Error loading scores:", err)
+        console.error("Error loading scores:", err)
         setError("Leaderboard өгөгдөл татахад алдаа гарлаа. Интернэт холболтоо шалгана уу.")
       })
       .finally(() => setLoading(false))
@@ -283,7 +283,7 @@ function LeaderboardsTab() {
                       {entry.profilePictureURL ? (
                         <img src={entry.profilePictureURL} alt={entry.userName} className="w-full h-full object-cover" />
                       ) : (
-                        <span className="text-lg font-bold text-primary">{entry.userName[0].toUpperCase()}</span>
+                        <img src={rank.icon} alt={rank.name} className="w-full h-full object-cover" />
                       )}
                     </div>
                   </div>
@@ -292,8 +292,9 @@ function LeaderboardsTab() {
                   <div className="flex-1 min-w-0">
                     <div className="font-bold text-lg truncate">{entry.userName}</div>
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-semibold" style={{ color: rank.color }}>
-                        {rank.icon} {rank.name}
+                      <span className="text-sm font-semibold flex items-center gap-1" style={{ color: rank.color }}>
+                        <img src={rank.icon} alt={rank.name} className="w-4 h-4 rounded-full object-cover" />
+                        {rank.name}
                       </span>
                     </div>
                   </div>
