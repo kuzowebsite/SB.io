@@ -2,19 +2,59 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/lib/auth-context"
 import { ProfileDropdown } from "@/components/profile-dropdown"
 import { trackUserPresence } from "@/lib/game-service"
+import {
+  getTotalPlayers,
+  getTotalGames,
+  subscribeToOnlinePlayers,
+} from "@/lib/game-service"
 
 export default function HomePage() {
   const { user, signOut } = useAuth()
   const router = useRouter()
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
+  const [totalPlayers, setTotalPlayers] = useState(0)
+  const [totalGames, setTotalGames] = useState(0)
+  const [onlinePlayers, setOnlinePlayers] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  // Server-с Stats татах
+  useEffect(() => {
+    setLoading(true)
+    Promise.all([getTotalPlayers(), getTotalGames()])
+      .then(([players, games]) => {
+        setTotalPlayers(players)
+        setTotalGames(games)
+        setError(null)
+      })
+      .catch((err) => {
+        console.error("Error loading home data:", err)
+        setError("Өгөгдөл татахад алдаа гарлаа. Дахин оролдоно уу.")
+      })
+      .finally(() => setLoading(false))
+
+    const unsubscribe = subscribeToOnlinePlayers((count) => {
+      setOnlinePlayers(count)
+    })
+
+    return () => {
+      unsubscribe()
+    }
+  }, [])
+
+  // User online track
   useEffect(() => {
     if (user) {
-      const cleanup = trackUserPresence(user.uid, user.displayName || user.email || "Anonymous")
+      const cleanup = trackUserPresence(
+        user.uid,
+        user.displayName || user.email || "Anonymous"
+      )
       return cleanup
     }
   }, [user])
@@ -23,6 +63,8 @@ export default function HomePage() {
     await signOut()
     router.push("/login")
   }
+
+  const toggleMobileMenu = () => setIsMobileMenuOpen((prev) => !prev)
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -93,13 +135,67 @@ export default function HomePage() {
               )}
             </div>
 
-            {/* Mobile Menu Button */}
-            <button className="md:hidden p-2">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            </button>
+            {/* Mobile Profile + Menu Button */}
+            <div className="flex items-center gap-2 md:hidden">
+              {user ? (
+                <ProfileDropdown />
+              ) : (
+                <>
+                  <Link href="/login">
+                    <Button variant="ghost" className="w-full">
+                      LOGIN
+                    </Button>
+                  </Link>
+                  <Link href="/register">
+                    <Button variant="default" className="w-full">
+                      SIGN UP
+                    </Button>
+                  </Link>
+                </>
+              )}
+              <button onClick={toggleMobileMenu} className="p-2">
+                <svg
+                  className="w-6 h-6"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 6h16M4 12h16M4 18h16"
+                  />
+                </svg>
+              </button>
+            </div>
           </div>
+
+          {/* Mobile Menu */}
+          {isMobileMenuOpen && (
+            <div className="md:hidden mt-2 flex flex-col gap-2 bg-background/90 p-4 rounded-lg shadow-lg">
+              <Link href="/play">
+                <Button variant="ghost" className="w-full">
+                  PLAY
+                </Button>
+              </Link>
+              <Link href="/channel">
+                <Button variant="ghost" className="w-full">
+                  SB CHANNEL
+                </Button>
+              </Link>
+              <Link href="/merch">
+                <Button variant="ghost" className="w-full">
+                  MERCH
+                </Button>
+              </Link>
+              <Link href="/about">
+                <Button variant="ghost" className="w-full">
+                  ABOUT
+                </Button>
+              </Link>
+            </div>
+          )}
         </div>
       </nav>
 
@@ -114,18 +210,17 @@ export default function HomePage() {
 
             {/* Content */}
             <div className="relative z-10 text-center space-y-6 sm:space-y-8 max-w-5xl">
-              {/* Main Title */}
               <div className="space-y-2 sm:space-y-4">
                 <h1 className="text-5xl sm:text-7xl md:text-8xl lg:text-9xl font-bold font-mono tracking-tighter">
                   <span className="inline-block animate-pulse text-primary">SB</span>
-                  <span className="inline-block animate-pulse animate-pulse text-primary">.iO</span>
+                  <span className="inline-block animate-pulse text-primary">.iO</span>
                 </h1>
                 <p className="text-lg sm:text-xl md:text-2xl text-muted-foreground font-medium">
                   SB.iO тоглоом
                 </p>
               </div>
 
-              {/* Features */}
+               {/* Features */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 max-w-3xl mx-auto py-6 sm:py-8">
                 <div className="p-3 sm:p-4 rounded-lg bg-card border border-primary/20">
                   <div className="text-2xl sm:text-3xl font-bold text-primary mb-1 sm:mb-2">⚡</div>
@@ -167,20 +262,38 @@ export default function HomePage() {
               </div>
 
               {/* Stats */}
-              <div className="pt-8 sm:pt-12 grid grid-cols-3 gap-4 sm:gap-8 max-w-2xl mx-auto">
-                <div className="text-center">
-                  <div className="text-2xl sm:text-4xl font-bold text-primary font-mono">1M+</div>
-                  <div className="text-xs sm:text-sm text-muted-foreground mt-1">Тоглогчид</div>
+              {loading ? (
+                <p className="text-muted-foreground mt-4">Ачааллаж байна...</p>
+              ) : error ? (
+                <p className="text-red-500 mt-4">{error}</p>
+              ) : (
+                <div className="pt-8 sm:pt-12 grid grid-cols-3 gap-4 sm:gap-8 max-w-2xl mx-auto">
+                  <div className="text-center">
+                    <div className="text-2xl sm:text-4xl font-bold text-primary animate-pulse font-mono">
+                      {totalPlayers.toLocaleString()}
+                    </div>
+                    <div className="text-xs sm:text-sm text-muted-foreground mt-1">
+                      Тоглогчид
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl sm:text-4xl font-bold text-primary animate-pulse font-mono">
+                      {totalGames.toLocaleString()}
+                    </div>
+                    <div className="text-xs sm:text-sm text-muted-foreground mt-1">
+                      Тоглолтууд
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl sm:text-4xl font-bold text-primary animate-pulse font-mono">
+                      {onlinePlayers.toLocaleString()}
+                    </div>
+                    <div className="text-xs sm:text-sm text-muted-foreground mt-1">
+                      Онлайн
+                    </div>
+                  </div>
                 </div>
-                <div className="text-center">
-                  <div className="text-2xl sm:text-4xl font-bold text-secondary font-mono">10M+</div>
-                  <div className="text-xs sm:text-sm text-muted-foreground mt-1">Тоглолтууд</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl sm:text-4xl font-bold text-accent font-mono">24/7</div>
-                  <div className="text-xs sm:text-sm text-muted-foreground mt-1">Онлайн</div>
-                </div>
-              </div>
+              )}
             </div>
           </div>
         </div>
@@ -194,7 +307,10 @@ export default function HomePage() {
               © 2025 SB.io. Бүх эрх хуулиар хамгаалагдсан.
             </div>
             <div className="flex items-center gap-4 sm:gap-6">
-              <Link href="#" className="text-xs sm:text-sm text-muted-foreground hover:text-primary transition-colors">
+              <Link
+                href="#"
+                className="text-xs sm:text-sm text-muted-foreground hover:text-primary transition-colors"
+              >
                 Нууцлал
               </Link>
               <Link
@@ -203,7 +319,10 @@ export default function HomePage() {
               >
                 Үйлчилгээний нөхцөл
               </Link>
-              <Link href="#" className="text-xs sm:text-sm text-muted-foreground hover:text-accent transition-colors">
+              <Link
+                href="#"
+                className="text-xs sm:text-sm text-muted-foreground hover:text-accent transition-colors"
+              >
                 Холбоо барих
               </Link>
             </div>
