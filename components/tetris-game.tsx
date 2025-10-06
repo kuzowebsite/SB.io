@@ -707,7 +707,7 @@ export default function TetrisGame() {
   }, [gameOver, scoreSaved, isSavingScore, user, score, lines, level, pieces, elapsedTime])
 
   return (
-    <div className="min-h-screen flex items-start sm:items-center justify-center px-2 py-2 sm:p-2 lg:p-8 bg-black fixed inset-0 overflow-hidden select-none">
+    <div className="min-h-screen flex items-start sm:items-center justify-center px-2 py-2 sm:p-2 lg:p-8 bg-black fixed inset-0 overflow-hidden">
       {showLeaderboard && <Leaderboard onClose={() => setShowLeaderboard(false)} />}
 
       <div className="flex flex-row gap-0.5 sm:gap-2 lg:gap-4 items-start justify-center w-full max-w-7xl">
@@ -745,24 +745,39 @@ export default function TetrisGame() {
           </Card>
           <Button
             onClick={() => setShowLeaderboard(true)}
+            onTouchStart={(e) => {
+              e.preventDefault()
+              setShowLeaderboard(true)
+            }}
             variant="outline"
-            className="w-20 sm:w-24 lg:w-32 text-[9px] sm:text-sm bg-yellow-800 border-yellow-700 text-white hover:bg-yellow-700 active:bg-yellow-600 py-1 touch-manipulation pointer-events-auto"
+            className="w-20 sm:w-24 lg:w-32 text-[9px] sm:text-sm bg-yellow-800 border-yellow-700 text-white hover:bg-yellow-700 active:bg-yellow-600 py-1 pointer-events-auto cursor-pointer"
+            style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent" }}
           >
             Тэргүүлэгчид
           </Button>
           {!gameOver && (
             <Button
               onClick={resetGame}
+              onTouchStart={(e) => {
+                e.preventDefault()
+                resetGame()
+              }}
               variant="outline"
-              className="w-20 sm:w-24 lg:w-32 text-[9px] sm:text-sm bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700 active:bg-zinc-600 py-1 touch-manipulation pointer-events-auto"
+              className="w-20 sm:w-24 lg:w-32 text-[9px] sm:text-sm bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700 active:bg-zinc-600 py-1 pointer-events-auto cursor-pointer"
+              style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent" }}
             >
               Шинэ тоглоом
             </Button>
           )}
           <Button
             onClick={() => router.push("/")}
+            onTouchStart={(e) => {
+              e.preventDefault()
+              router.push("/")
+            }}
             variant="outline"
-            className="w-20 sm:w-24 lg:w-32 text-[9px] sm:text-sm bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700 active:bg-zinc-600 py-1 touch-manipulation pointer-events-auto"
+            className="w-20 sm:w-24 lg:w-32 text-[9px] sm:text-sm bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700 active:bg-zinc-600 py-1 pointer-events-auto cursor-pointer"
+            style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent" }}
           >
             Гарах
           </Button>
@@ -774,56 +789,80 @@ export default function TetrisGame() {
               ref={canvasRef}
               width={BOARD_WIDTH * BLOCK_SIZE}
               height={BOARD_HEIGHT * BLOCK_SIZE}
-              className="border-2 border-zinc-800 rounded w-[130px] sm:w-[240px] lg:w-[300px] h-auto touch-none"
+              className="border-2 border-zinc-800 rounded w-[130px] sm:w-[240px] lg:w-[300px] h-auto"
               style={{ imageRendering: "pixelated", touchAction: "none" }}
             />
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
               <div className="text-3xl sm:text-6xl lg:text-9xl font-bold text-zinc-800/50">{score}</div>
             </div>
           </div>
-          <div className="flex flex-col justify-center items-center gap-2 mt-2 sm:mt-4 lg:hidden transform translate-y-10 relative z-10">
-            <div className="flex justify-center gap-2">
+          <div className="flex flex-col justify-center items-center gap-2 mt-2 sm:mt-4 lg:hidden transform translate-y-10 relative z-50 pointer-events-auto">
+            <div className="flex justify-center gap-2 pointer-events-auto">
               <Button
                 onClick={moveLeft}
-                className="w-16 h-16 text-2xl bg-zinc-700 hover:bg-zinc-600 touch-manipulation active:bg-zinc-500 pointer-events-auto"
-                style={{ touchAction: "manipulation" }}
+                onTouchStart={(e) => {
+                  e.preventDefault()
+                  moveLeft()
+                }}
+                className="w-16 h-16 text-2xl bg-zinc-700 hover:bg-zinc-600 active:bg-zinc-500 pointer-events-auto cursor-pointer"
+                style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent" }}
               >
                 ◀
               </Button>
               <Button
                 onClick={moveRight}
-                className="w-16 h-16 text-2xl bg-zinc-700 hover:bg-zinc-600 touch-manipulation active:bg-zinc-500 pointer-events-auto"
-                style={{ touchAction: "manipulation" }}
+                onTouchStart={(e) => {
+                  e.preventDefault()
+                  moveRight()
+                }}
+                className="w-16 h-16 text-2xl bg-zinc-700 hover:bg-zinc-600 active:bg-zinc-500 pointer-events-auto cursor-pointer"
+                style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent" }}
               >
                 ▶
               </Button>
               <Button
                 onClick={moveDown}
-                className="w-16 h-16 text-2xl bg-zinc-700 hover:bg-zinc-600 touch-manipulation active:bg-zinc-500 pointer-events-auto"
-                style={{ touchAction: "manipulation" }}
+                onTouchStart={(e) => {
+                  e.preventDefault()
+                  moveDown()
+                }}
+                className="w-16 h-16 text-2xl bg-zinc-700 hover:bg-zinc-600 active:bg-zinc-500 pointer-events-auto cursor-pointer"
+                style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent" }}
               >
                 ▼
               </Button>
               <Button
                 onClick={rotatePiece}
-                className="w-16 h-16 text-2xl bg-blue-700 hover:bg-blue-600 touch-manipulation active:bg-blue-500 pointer-events-auto"
-                style={{ touchAction: "manipulation" }}
+                onTouchStart={(e) => {
+                  e.preventDefault()
+                  rotatePiece()
+                }}
+                className="w-16 h-16 text-2xl bg-blue-700 hover:bg-blue-600 active:bg-blue-500 pointer-events-auto cursor-pointer"
+                style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent" }}
               >
                 ⟳
               </Button>
             </div>
-            <div className="flex justify-center gap-2">
+            <div className="flex justify-center gap-2 pointer-events-auto">
               <Button
                 onClick={holdCurrentPiece}
-                className="w-16 h-16 text-2xl bg-yellow-700 hover:bg-yellow-600 touch-manipulation active:bg-yellow-500 pointer-events-auto"
-                style={{ touchAction: "manipulation" }}
+                onTouchStart={(e) => {
+                  e.preventDefault()
+                  holdCurrentPiece()
+                }}
+                className="w-16 h-16 text-2xl bg-yellow-700 hover:bg-yellow-600 active:bg-yellow-500 pointer-events-auto cursor-pointer"
+                style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent" }}
               >
                 H
               </Button>
               <Button
                 onClick={hardDrop}
-                className="w-16 h-16 text-2xl bg-red-700 hover:bg-red-600 touch-manipulation active:bg-red-500 pointer-events-auto"
-                style={{ touchAction: "manipulation" }}
+                onTouchStart={(e) => {
+                  e.preventDefault()
+                  hardDrop()
+                }}
+                className="w-16 h-16 text-2xl bg-red-700 hover:bg-red-600 active:bg-red-500 pointer-events-auto cursor-pointer"
+                style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent" }}
               >
                 ⇩
               </Button>
@@ -849,17 +888,21 @@ export default function TetrisGame() {
           </Card>
 
           {gameOver && (
-            <Card className="w-20 sm:w-24 lg:w-32 p-2 sm:p-3 lg:p-4 bg-red-950/50 border-red-900 sm:translate-x-0 -translate-x-11">
-              <h2 className="text-[10px] font-bold text-red-500 -mb-5">Дууссан!</h2>
+            <Card className="w-20 sm:w-24 lg:w-32 p-1 sm:p-2 lg:p-3 bg-zinc-900 border-zinc-800 -translate-x-11 sm:translate-x-0">
+              <h2 className="text-[9px] font-bold text-red-500 mb-1">Дууссан!</h2>
               <p className="text-[9px] sm:text-sm text-white mb-2 sm:mb-3 lg:mb-1">Оноо: {score}</p>
               {isSavingScore && <p className="text-[6px] sm:text-xs text-yellow-400">Оноо хадгалж байна...</p>}
-              {scoreSaved && <p className="text-[6px] sm:text-xs text-green-400 -mb-4">Оноо хадгалагдлаа!</p>}
+              {scoreSaved && <p className="text-[6px] sm:text-xs text-green-400 mb-2">Оноо хадгалагдлаа!</p>}
               <Button
                 onClick={resetGame}
-                className="w-full text-[6px] sm:text-sm bg-red-600 hover:bg-red-700 active:bg-red-800 py-1 touch-manipulation pointer-events-auto"
-                style={{ touchAction: "manipulation" }}
+                onTouchStart={(e) => {
+                  e.preventDefault()
+                  resetGame()
+                }}
+                className="w-full text-[6px] sm:text-sm bg-red-600 hover:bg-red-700 active:bg-red-800 py-1 pointer-events-auto cursor-pointer"
+                style={{ touchAction: "manipulation", WebkitTapHighlightColor: "transparent" }}
               >
-                Нахих
+                Дахих
               </Button>
             </Card>
           )}
