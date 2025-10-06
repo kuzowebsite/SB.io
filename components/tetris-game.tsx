@@ -1056,7 +1056,7 @@ export default function TetrisGame() {
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none flex flex-col items-center gap-1">
               <div className="text-3xl sm:text-6xl lg:text-9xl font-bold text-zinc-800/50">{score}</div>
               {personalBest > 0 && (
-                <div className="text-xs sm:text-sm lg:text-xl font-bold text-zinc-700/50">РЕКОРД: {personalBest}</div>
+                <div className="text-xs sm:text-sm lg:text-xl font-bold text-zinc-700/50"> {personalBest}</div>
               )}
             </div>
           </div>
