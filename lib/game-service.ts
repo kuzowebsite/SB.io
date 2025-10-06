@@ -57,7 +57,7 @@ export async function saveGameScore(gameData: GameScore): Promise<void> {
     // Update user profile
     await updateUserProfile(gameData.userId, gameData.userName, xp, gameData.score, gameData.lines)
   } catch (error) {
-    console.error("[v0] Error saving game score:", error)
+    console.error("Error saving game score:", error)
     throw error
   }
 }
@@ -100,7 +100,7 @@ async function updateUserProfile(
       })
     }
   } catch (error) {
-    console.error("[v0] Error updating user profile:", error)
+    console.error("Error updating user profile:", error)
     throw error
   }
 }
@@ -130,7 +130,7 @@ export async function getTopScores(limitCount = 10): Promise<LeaderboardEntry[]>
 
     return scores
   } catch (error) {
-    console.error("[v0] Error fetching top scores:", error)
+    console.error("Error fetching top scores:", error)
     return []
   }
 }
@@ -153,19 +153,19 @@ export async function getUserScores(userId: string, limitCount = 10): Promise<Le
         id: doc.id,
         userId: data.userId,
         userName: data.userName,
-        bestScore: data.score, // Placeholder for bestScore, actual value will be fetched later if needed
+        bestScore: data.score,
         totalScore: data.score,
         lines: data.lines,
         totalGames: data.score,
         totalXP: data.xp,
-        profilePictureURL: data.score, // Placeholder for profilePictureURL, actual value will be fetched later if needed
+        profilePictureURL: data.score,
         date: data.date.toDate(),
       })
     })
 
     return scores
   } catch (error) {
-    console.error("[v0] Error fetching user scores:", error)
+    console.error("Error fetching user scores:", error)
     return []
   }
 }
@@ -175,7 +175,7 @@ export async function getTotalPlayers(): Promise<number> {
     const querySnapshot = await getDocs(collection(db, "users"))
     return querySnapshot.size
   } catch (error) {
-    console.error("[v0] Error fetching total players:", error)
+    console.error("Error fetching total players:", error)
     return 0
   }
 }
@@ -185,7 +185,7 @@ export async function getTotalGames(): Promise<number> {
     const querySnapshot = await getDocs(collection(db, "scores"))
     return querySnapshot.size
   } catch (error) {
-    console.error("[v0] Error fetching total games:", error)
+    console.error("Error fetching total games:", error)
     return 0
   }
 }
@@ -200,7 +200,7 @@ export async function getUserProfile(userId: string): Promise<UserProfile | null
     }
     return null
   } catch (error) {
-    console.error("[v0] Error fetching user profile:", error)
+    console.error("Error fetching user profile:", error)
     return null
   }
 }
@@ -225,7 +225,7 @@ export async function updateUserProfileData(
       )
     }
   } catch (error) {
-    console.error("[v0] Error updating user profile data:", error)
+    console.error("Error updating user profile data:", error)
     throw error
   }
 }
@@ -277,7 +277,7 @@ export async function getOnlinePlayers(): Promise<number> {
 
     return onlineCount
   } catch (error) {
-    console.error("[v0] Error fetching online players:", error)
+    console.error("Error fetching online players:", error)
     return 0
   }
 }
@@ -304,3 +304,5 @@ export function subscribeToOnlinePlayers(callback: (count: number) => void): () 
 
   return unsubscribe
 }
+
+export const getLeaderboard = getTopScores
