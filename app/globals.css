@@ -75,7 +75,8 @@
 }
 
 @theme inline {
-  /* optional: --font-sans, --font-serif, --font-mono if they are applied in the layout.tsx */
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -121,4 +122,110 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* Enhanced electric animation keyframes with multiple sparks and effects */
+@keyframes electric-spark-1 {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.9;
+  }
+  90% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateX(600%);
+    opacity: 0;
+  }
+}
+
+@keyframes electric-spark-2 {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.8;
+  }
+  85% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateX(600%);
+    opacity: 0;
+  }
+}
+
+@keyframes electric-spark-3 {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.7;
+  }
+  80% {
+    opacity: 0.7;
+  }
+  100% {
+    transform: translateX(600%);
+    opacity: 0;
+  }
+}
+
+@keyframes electric-pulse {
+  0%,
+  100% {
+    opacity: 0.1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@keyframes electric-shimmer {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes electric-glow {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.animate-electric-spark-1 {
+  animation: electric-spark-1 1.5s ease-in-out infinite;
+}
+
+.animate-electric-spark-2 {
+  animation: electric-spark-2 2s ease-in-out 0.3s infinite;
+}
+
+.animate-electric-spark-3 {
+  animation: electric-spark-3 2.5s ease-in-out 0.6s infinite;
+}
+
+.animate-electric-pulse {
+  animation: electric-pulse 2s ease-in-out infinite;
+}
+
+.animate-electric-shimmer {
+  animation: electric-shimmer 1.5s ease-in-out infinite;
+}
+
+.animate-electric-glow {
+  animation: electric-glow 2s ease-in-out infinite;
 }
