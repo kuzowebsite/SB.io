@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { useAuth } from "@/lib/auth-context"
 import { saveGameScore } from "@/lib/game-service"
 
+
 const BOARD_WIDTH = 10
 const BOARD_HEIGHT = 20
 const BLOCK_SIZE = 30
@@ -526,7 +527,6 @@ export default function TetrisGame() {
         }
       }
 
-
       for (let y = 0; y < currentPiece.shape.length; y++) {
         for (let x = 0; x < currentPiece.shape[y].length; x++) {
           if (currentPiece.shape[y][x]) {
@@ -596,7 +596,7 @@ export default function TetrisGame() {
         pieces,
         time: elapsedTime,
         date: new Date(),
-        xp: 0
+        xp: 0,
       })
         .then(() => {
           console.log("[v0] Score saved successfully")
@@ -612,75 +612,73 @@ export default function TetrisGame() {
   }, [gameOver, scoreSaved, isSavingScore, user, score, lines, level, pieces, elapsedTime])
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-0.5 sm:p-2 lg:p-8 bg-black overflow-hidden">
+    <div className="min-h-screen flex items-start sm:items-center justify-center px-2 py-2 sm:p-2 lg:p-8 bg-black">
       <div className="flex flex-row gap-0.5 sm:gap-2 lg:gap-4 items-start justify-center w-full max-w-7xl">
-        <div className="flex flex-col gap-0.5 sm:gap-2 lg:gap-4 w-16 sm:w-32 lg:w-52 flex-shrink-0">
-          <Card className="p-0.5 sm:p-2 lg:p-4 bg-zinc-900 border-zinc-600">
-            <h2 className="text-[7px] sm:text-xs lg:text-sm font-bold mb-0.5 sm:mb-2 lg:mb-3 text-white uppercase tracking-wider">
+        <div className="flex flex-col gap-1 sm:gap-2 lg:gap-4 w-14 sm:w-32 lg:w-52 flex-shrink-0 translate-x-8 sm:translate-x-0">
+          <Card className="w-20 sm:w-24 lg:w-32 p-1 sm:p-2 lg:p-4 bg-zinc-900 border-zinc-600">
+            <h2 className="text-[9px] sm:text-xs lg:text-sm font-bold mb-1 sm:mb-2 lg:mb-3 text-white uppercase tracking-wider">
               Hold
             </h2>
-            <div className="bg-black rounded border border-zinc-800 p-0.5 sm:p-2 lg:p-4 flex items-center justify-center h-10 sm:h-16 lg:h-24">
-              {renderPreview(holdPiece, window.innerWidth < 640 ? 6 : window.innerWidth < 1024 ? 12 : 14)}
+            <div className="bg-black rounded border border-zinc-800 p-1 sm:p-2 lg:p-4 flex items-center justify-center h-12 sm:h-16 lg:h-24">
+              {renderPreview(holdPiece, window.innerWidth < 640 ? 8 : window.innerWidth < 1024 ? 12 : 14)}
             </div>
           </Card>
 
-          <Card className="p-0.5 sm:p-2 lg:p-4 bg-zinc-900 border-zinc-600 text-white space-y-0.5 sm:space-y-2 lg:space-y-3">
+          <Card className="w-20 sm:w-24 lg:w-32 p-1 sm:p-2 lg:p-4 bg-zinc-900 border-zinc-800 text-white space-y-1 sm:space-y-2 lg:space-y-3">
             <div className="flex justify-between items-baseline">
-              <span className="text-[7px] sm:text-xs text-zinc-400 uppercase">Inputs</span>
+              <span className="text-[8px] sm:text-xs text-zinc-400 uppercase">Inputs: </span>
               <span className="text-[8px] sm:text-sm lg:text-lg font-bold">{inputs}</span>
             </div>
             <div className="flex justify-between items-baseline">
-              <span className="text-[7px] sm:text-xs text-zinc-600 uppercase">Pieces</span>
+              <span className="text-[8px] sm:text-xs text-zinc-600 uppercase">Pieces: </span>
               <span className="text-[8px] sm:text-sm lg:text-lg font-bold">
                 {pieces}. {elapsedTime > 0 ? (pieces / elapsedTime).toFixed(1) : "0.0"}/s
               </span>
             </div>
             <div className="flex justify-between items-baseline">
-              <span className="text-[7px] sm:text-xs text-zinc-600 uppercase">Lines</span>
+              <span className="text-[8px] sm:text-xs text-zinc-600 uppercase">Lines: </span>
               <span className="text-[8px] sm:text-sm lg:text-lg font-bold">
                 {lines}/{lines + 40}
               </span>
             </div>
             <div className="flex justify-between items-baseline">
-              <span className="text-[7px] sm:text-xs text-zinc-600 uppercase">Time</span>
+              <span className="text-[8px] sm:text-xs text-zinc-600 uppercase">Time: </span>
               <span className="text-[8px] sm:text-sm lg:text-lg font-bold">{formatTime(elapsedTime)}</span>
             </div>
-        
           </Card>
           {!gameOver && (
             <Button
               onClick={resetGame}
               variant="outline"
-              className="w-full text-[10px] sm:text-sm bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700 py-1"
+              className="w-20 sm:w-24 lg:w-32 text-[9px] sm:text-sm bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700 py-1"
             >
               Шинэ тоглоом
             </Button>
           )}
-            <Button
-        onClick={() => router.push("/")}
-        variant="outline"
-        className="w-full text-[10px] sm:text-sm bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700 py-1"
-      >
-        Гарах
-      </Button>
+          <Button
+            onClick={() => router.push("/")}
+            variant="outline"
+            className="w-20 sm:w-24 lg:w-32 text-[9px] sm:text-sm bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700 py-1"
+          >
+            Гарах
+          </Button>
         </div>
 
-        <div className="flex flex-col gap-0.5 sm:gap-2 lg:gap-4 flex-shrink-0">
+        <div className="flex flex-col gap-1 sm:gap-2 lg:gap-4 flex-shrink-0">
           <div className="flex justify-center mb-26">
             <canvas
               ref={canvasRef}
               width={BOARD_WIDTH * BLOCK_SIZE}
               height={BOARD_HEIGHT * BLOCK_SIZE}
-              className="border-2 border-zinc-800 rounded w-[150px] sm:w-[240px] lg:w-[300px] h-auto"
+              className="border-2 border-zinc-800 rounded w-[130px] sm:w-[240px] lg:w-[300px] h-auto"
               style={{ imageRendering: "pixelated", touchAction: "none" }}
             />
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
-              <div className="text-2xl sm:text-6xl lg:text-9xl font-bold text-zinc-800/50">{score}</div>
+              <div className="text-3xl sm:text-6xl lg:text-9xl font-bold text-zinc-800/50">{score}</div>
             </div>
           </div>
-          {/* ЭНЭ ХЭСЭГТ гар утасны товчлууруудыг нэмнэ */}
-  {/* Гар утас / Таблет товчлуурууд */}
-<div className="flex flex-col justify-center items-center gap-2 mt-2 sm:mt-4 lg:hidden">
+          {/* Гар утас / Таблет товчлуурууд */}
+<div className="flex flex-col justify-center items-center gap-2 mt-2 sm:mt-4 lg:hidden transform translate-y-10">
   {/* Дээд эгнээ */}
   <div className="flex justify-center gap-2">
     <Button onClick={moveLeft} className="w-16 h-16 text-2xl bg-zinc-700 hover:bg-zinc-600">◀</Button>
@@ -697,38 +695,34 @@ export default function TetrisGame() {
 </div>
 </div>
 
-        <div className="flex flex-col gap-0.5 sm:gap-2 lg:gap-4 w-16 sm:w-32 lg:w-52 flex-shrink-0">
-          <Card className="p-0.5 sm:p-2 lg:p-4 bg-zinc-900 border-zinc-800">
-            <h2 className="text-[7px] sm:text-xs lg:text-sm font-bold mb-0.5 sm:mb-2 lg:mb-3 text-white uppercase tracking-wider">
+        <div className="flex flex-col gap-1 sm:gap-2 lg:gap-4 w-14 sm:w-32 lg:w-52 flex-shrink-0">
+          <Card className="w-20 sm:w-24 lg:w-32 p-1 sm:p-2 lg:p-4 bg-zinc-900 border-zinc-800 -translate-x-11 sm:translate-x-0">
+            <h2 className="text-[9px] sm:text-xs lg:text-sm font-bold mb-1 sm:mb-2 lg:mb-3 text-white uppercase tracking-wider">
               Next
             </h2>
-            <div className="space-y-0.5 sm:space-y-2 lg:space-y-3">
+            <div className="space-y-1 sm:space-y-2 lg:space-y-3">
               {nextQueue.map((piece, index) => (
                 <div
                   key={index}
-                  className="bg-black rounded border border-zinc-800 p-0.5 sm:p-2 lg:p-3 flex items-center justify-center h-8 sm:h-14 lg:h-20"
+                  className="bg-black rounded border border-zinc-800 p-1 sm:p-2 lg:p-3 flex items-center justify-center h-10 sm:h-14 lg:h-20"
                 >
-                  {renderPreview(piece, window.innerWidth < 640 ? 5 : window.innerWidth < 1024 ? 10 : 12)}
+                  {renderPreview(piece, window.innerWidth < 640 ? 7 : window.innerWidth < 1024 ? 10 : 12)}
                 </div>
               ))}
             </div>
           </Card>
 
           {gameOver && (
-            <Card className="p-2 sm:p-3 lg:p-4 bg-red-950/50 border-red-900">
-              <h2 className="text-xs sm:text-base lg:text-lg font-bold text-red-500 mb-1 sm:mb-2 lg:mb-3">
-                Тоглоом дууссан!
-              </h2>
-              <p className="text-[10px] sm:text-sm text-white mb-2 sm:mb-3 lg:mb-4">Таны оноо: {score}</p>
-              {isSavingScore && <p className="text-[8px] sm:text-xs text-yellow-400 mb-2">Оноо хадгалж байна...</p>}
-              {scoreSaved && <p className="text-[8px] sm:text-xs text-green-400 mb-2">Оноо амжилттай хадгалагдлаа!</p>}
-              <Button onClick={resetGame} className="w-full text-[10px] sm:text-sm bg-red-600 hover:bg-red-700 py-1">
-                Дахин тоглох
+            <Card className="w-20 sm:w-24 lg:w-32 p-2 sm:p-3 lg:p-4 bg-red-950/50 border-red-900 sm:translate-x-0 -translate-x-11">
+              <h2 className="text-[10px] font-bold text-red-500 -mb-5">Дууссан!</h2>
+              <p className="text-[9px] sm:text-sm text-white mb-2 sm:mb-3 lg:mb-1">Оноо: {score}</p>
+              {isSavingScore && <p className="text-[6px] sm:text-xs text-yellow-400">Оноо хадгалж байна...</p>}
+              {scoreSaved && <p className="text-[6px] sm:text-xs text-green-400 -mb-4">Оноо хадгалагдлаа!</p>}
+              <Button onClick={resetGame} className="w-full text-[6px] sm:text-sm bg-red-600 hover:bg-red-700 py-1">
+                Нахих
               </Button>
             </Card>
           )}
-
-          
         </div>
       </div>
     </div>
