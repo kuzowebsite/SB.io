@@ -6,11 +6,11 @@ import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/lib/auth-context"
 import { saveGameScore } from "@/lib/game-service"
+import Leaderboard from "@/components/leaderboard"
 
-
+const BLOCK_SIZE = 30
 const BOARD_WIDTH = 10
 const BOARD_HEIGHT = 20
-const BLOCK_SIZE = 30
 
 type TetrominoType = "I" | "O" | "T" | "S" | "Z" | "J" | "L"
 
@@ -101,7 +101,9 @@ function generateQueue(count: number): Tetromino[] {
 export default function TetrisGame() {
   const router = useRouter()
   const { user } = useAuth()
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const animationFrameRef = useRef<number | null>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
   const [board, setBoard] = useState<number[][]>(createEmptyBoard())
   const [currentPiece, setCurrentPiece] = useState<Tetromino>(getRandomTetromino())
   const [nextQueue, setNextQueue] = useState<Tetromino[]>(generateQueue(5))
@@ -120,17 +122,63 @@ export default function TetrisGame() {
   const [isClearing, setIsClearing] = useState(false)
   const [isSavingScore, setIsSavingScore] = useState(false)
   const [scoreSaved, setScoreSaved] = useState(false)
+  const [showLeaderboard, setShowLeaderboard] = useState(false)
 
   const boardColors = useRef<string[][]>(Array.from({ length: BOARD_HEIGHT }, () => Array(BOARD_WIDTH).fill("")))
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
 
   useEffect(() => {
-    if (gameOver) return
-    const interval = setInterval(() => {
-      setElapsedTime(Math.floor((Date.now() - startTime) / 1000))
-    }, 1000)
-    return () => clearInterval(interval)
-  }, [startTime, gameOver])
+    audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
+    return () => {
+      audioContextRef.current?.close()
+    }
+  }, [])
+
+  const playLineClearSound = useCallback(() => {
+    if (!audioContextRef.current) return
+
+    const ctx = audioContextRef.current
+    const oscillator = ctx.createOscillator()
+    const gainNode = ctx.createGain()
+
+    oscillator.connect(gainNode)
+    gainNode.connect(ctx.destination)
+
+    oscillator.type = "square"
+    oscillator.frequency.setValueAtTime(800, ctx.currentTime)
+    oscillator.frequency.exponentialRampToValueAtTime(400, ctx.currentTime + 0.1)
+
+    gainNode.gain.setValueAtTime(0.3, ctx.currentTime)
+    gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2)
+
+    oscillator.start(ctx.currentTime)
+    oscillator.stop(ctx.currentTime + 0.2)
+  }, [])
+
+  useEffect(() => {
+    document.body.style.overflow = "hidden"
+    document.documentElement.style.overflow = "hidden"
+
+    const preventZoom = (e: TouchEvent) => {
+      if (e.touches.length > 1) {
+        e.preventDefault()
+      }
+    }
+
+    const preventDoubleTapZoom = (e: TouchEvent) => {
+      e.preventDefault()
+    }
+
+    document.addEventListener("touchmove", preventZoom, { passive: false })
+    document.addEventListener("touchstart", preventDoubleTapZoom, { passive: false })
+
+    return () => {
+      document.body.style.overflow = ""
+      document.documentElement.style.overflow = ""
+      document.removeEventListener("touchmove", preventZoom)
+      document.removeEventListener("touchstart", preventDoubleTapZoom)
+    }
+  }, [])
 
   const checkCollision = useCallback(
     (piece: Tetromino, pos: Position): boolean => {
@@ -188,6 +236,7 @@ export default function TetrisGame() {
     if (linesToClear.length > 0) {
       setIsClearing(true)
       setClearingLines(linesToClear)
+      playLineClearSound()
 
       setTimeout(() => {
         const newBoard = board.filter((_, index) => !linesToClear.includes(index))
@@ -205,9 +254,9 @@ export default function TetrisGame() {
         setLevel(Math.floor((lines + linesToClear.length) / 10) + 1)
         setClearingLines([])
         setIsClearing(false)
-      }, 200)
+      }, 300)
     }
-  }, [board, level, lines])
+  }, [board, level, lines, playLineClearSound])
 
   const holdCurrentPiece = useCallback(() => {
     if (gameOver || !canHold || isClearing) return
@@ -350,6 +399,14 @@ export default function TetrisGame() {
   }
 
   useEffect(() => {
+    if (gameOver) return
+    const interval = setInterval(() => {
+      setElapsedTime(Math.floor((Date.now() - startTime) / 1000))
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [startTime, gameOver])
+
+  useEffect(() => {
     const handleTouchStart = (e: TouchEvent) => {
       if (gameOver) return
       const touch = e.touches[0]
@@ -449,108 +506,6 @@ export default function TetrisGame() {
     return () => clearInterval(interval)
   }, [moveDown, level, gameOver, isClearing])
 
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-
-    const ctx = canvas.getContext("2d")
-    if (!ctx) return
-
-    ctx.fillStyle = "#000000ff"
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-    ctx.strokeStyle = "#1a1a2e"
-    ctx.lineWidth = 1
-    for (let y = 0; y <= BOARD_HEIGHT; y++) {
-      ctx.beginPath()
-      ctx.moveTo(0, y * BLOCK_SIZE)
-      ctx.lineTo(BOARD_WIDTH * BLOCK_SIZE, y * BLOCK_SIZE)
-      ctx.stroke()
-    }
-    for (let x = 0; x <= BOARD_WIDTH; x++) {
-      ctx.beginPath()
-      ctx.moveTo(x * BLOCK_SIZE, 0)
-      ctx.lineTo(x * BLOCK_SIZE, BOARD_HEIGHT * BLOCK_SIZE)
-      ctx.stroke()
-    }
-
-    for (let y = 0; y < BOARD_HEIGHT; y++) {
-      for (let x = 0; x < BOARD_WIDTH; x++) {
-        if (board[y][x]) {
-          const color = boardColors.current[y][x] || "#666"
-
-          const isLineClearing = clearingLines.includes(y)
-          const displayColor = isLineClearing ? "#ffffff" : color
-
-          ctx.fillStyle = displayColor
-          ctx.fillRect(x * BLOCK_SIZE + 2, y * BLOCK_SIZE + 2, BLOCK_SIZE - 4, BLOCK_SIZE - 4)
-
-          if (!isLineClearing) {
-            ctx.fillStyle = "rgba(255, 255, 255, 0.3)"
-            ctx.fillRect(x * BLOCK_SIZE + 2, y * BLOCK_SIZE + 2, BLOCK_SIZE - 4, 6)
-
-            ctx.fillRect(x * BLOCK_SIZE + 2, y * BLOCK_SIZE + 2, 4, BLOCK_SIZE - 4)
-
-            ctx.fillStyle = "rgba(0, 0, 0, 0.3)"
-            ctx.fillRect(x * BLOCK_SIZE + 2, y * BLOCK_SIZE + BLOCK_SIZE - 8, BLOCK_SIZE - 4, 6)
-
-            ctx.fillRect(x * BLOCK_SIZE + BLOCK_SIZE - 6, y * BLOCK_SIZE + 2, 4, BLOCK_SIZE - 4)
-          }
-        }
-      }
-    }
-
-    if (!isClearing) {
-      let ghostY = position.y
-      while (!checkCollision(currentPiece, { x: position.x, y: ghostY + 1 })) {
-        ghostY++
-      }
-      ctx.fillStyle = currentPiece.color + "30"
-      ctx.strokeStyle = currentPiece.color + "60"
-      ctx.lineWidth = 2
-      for (let y = 0; y < currentPiece.shape.length; y++) {
-        for (let x = 0; x < currentPiece.shape[y].length; x++) {
-          if (currentPiece.shape[y][x]) {
-            ctx.fillRect(
-              (position.x + x) * BLOCK_SIZE + 2,
-              (ghostY + y) * BLOCK_SIZE + 2,
-              BLOCK_SIZE - 4,
-              BLOCK_SIZE - 4,
-            )
-            ctx.strokeRect(
-              (position.x + x) * BLOCK_SIZE + 2,
-              (ghostY + y) * BLOCK_SIZE + 2,
-              BLOCK_SIZE - 4,
-              BLOCK_SIZE - 4,
-            )
-          }
-        }
-      }
-
-      for (let y = 0; y < currentPiece.shape.length; y++) {
-        for (let x = 0; x < currentPiece.shape[y].length; x++) {
-          if (currentPiece.shape[y][x]) {
-            const drawX = (position.x + x) * BLOCK_SIZE
-            const drawY = (position.y + y) * BLOCK_SIZE
-
-            ctx.fillStyle = currentPiece.color
-            ctx.fillRect(drawX + 2, drawY + 2, BLOCK_SIZE - 4, BLOCK_SIZE - 4)
-
-            ctx.fillStyle = "rgba(255, 255, 255, 0.4)"
-            ctx.fillRect(drawX + 2, drawY + 2, BLOCK_SIZE - 4, 6)
-
-            ctx.fillRect(drawX + 2, drawY + 2, 4, BLOCK_SIZE - 4)
-
-            ctx.fillStyle = "rgba(0, 0, 0, 0.4)"
-            ctx.fillRect(drawX + 2, drawY + BLOCK_SIZE - 8, BLOCK_SIZE - 4, 6)
-
-            ctx.fillRect(drawX + BLOCK_SIZE - 6, drawY + 2, 4, BLOCK_SIZE - 4)
-          }
-        }
-      }
-    }
-  }, [board, currentPiece, position, checkCollision, clearingLines, isClearing])
-
   const renderPreview = (piece: Tetromino | null, size = 20) => {
     if (!piece) return null
     return (
@@ -585,6 +540,147 @@ export default function TetrisGame() {
   }
 
   useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+
+    const render = () => {
+      ctx.fillStyle = "#000000"
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.1)"
+      ctx.lineWidth = 1
+      for (let y = 0; y <= BOARD_HEIGHT; y++) {
+        ctx.beginPath()
+        ctx.moveTo(0, y * BLOCK_SIZE)
+        ctx.lineTo(BOARD_WIDTH * BLOCK_SIZE, y * BLOCK_SIZE)
+        ctx.stroke()
+      }
+      for (let x = 0; x <= BOARD_WIDTH; x++) {
+        ctx.beginPath()
+        ctx.moveTo(x * BLOCK_SIZE, 0)
+        ctx.lineTo(x * BLOCK_SIZE, BOARD_HEIGHT * BLOCK_SIZE)
+        ctx.stroke()
+      }
+
+      for (let y = 0; y < BOARD_HEIGHT; y++) {
+        for (let x = 0; x < BOARD_WIDTH; x++) {
+          if (board[y][x]) {
+            const color = boardColors.current[y][x] || "#666666"
+
+            const isClearing = clearingLines.includes(y)
+
+            if (isClearing) {
+              ctx.save()
+
+              const pulseIntensity = Math.sin(Date.now() / 100) * 0.5 + 0.5
+              ctx.shadowColor = "#ffffff"
+              ctx.shadowBlur = 20 + pulseIntensity * 20
+              ctx.fillStyle = `rgba(255, 255, 255, ${0.7 + pulseIntensity * 0.3})`
+              ctx.fillRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
+
+              ctx.strokeStyle = "#00ffff"
+              ctx.lineWidth = 2
+              ctx.shadowColor = "#00ffff"
+              ctx.shadowBlur = 15
+
+              for (let i = 0; i < 3; i++) {
+                ctx.beginPath()
+                const startX = x * BLOCK_SIZE + Math.random() * BLOCK_SIZE
+                const startY = y * BLOCK_SIZE + Math.random() * BLOCK_SIZE
+                ctx.moveTo(startX, startY)
+
+                const segments = 3
+                for (let j = 0; j < segments; j++) {
+                  const endX = startX + (Math.random() - 0.5) * BLOCK_SIZE
+                  const endY = startY + (Math.random() - 0.5) * BLOCK_SIZE
+                  ctx.lineTo(endX, endY)
+                }
+                ctx.stroke()
+              }
+
+              ctx.restore()
+            } else {
+              ctx.fillStyle = color
+              ctx.fillRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
+
+              ctx.strokeStyle = "rgba(0, 0, 0, 0.3)"
+              ctx.lineWidth = 2
+              ctx.strokeRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
+
+              ctx.fillStyle = "rgba(255, 255, 255, 0.2)"
+              ctx.fillRect(x * BLOCK_SIZE + 2, y * BLOCK_SIZE + 2, BLOCK_SIZE - 4, 4)
+
+              ctx.fillStyle = "rgba(0, 0, 0, 0.2)"
+              ctx.fillRect(x * BLOCK_SIZE + 2, y * BLOCK_SIZE + BLOCK_SIZE - 6, BLOCK_SIZE - 4, 4)
+            }
+          }
+        }
+      }
+
+      if (!gameOver && !isClearing) {
+        let ghostY = position.y
+        while (!checkCollision(currentPiece, { x: position.x, y: ghostY + 1 })) {
+          ghostY++
+        }
+
+        for (let y = 0; y < currentPiece.shape.length; y++) {
+          for (let x = 0; x < currentPiece.shape[y].length; x++) {
+            if (currentPiece.shape[y][x]) {
+              const boardX = position.x + x
+              const boardY = ghostY + y
+              if (boardY >= 0) {
+                ctx.fillStyle = "rgba(255, 255, 255, 0.1)"
+                ctx.fillRect(boardX * BLOCK_SIZE, boardY * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
+                ctx.strokeStyle = "rgba(255, 255, 255, 0.3)"
+                ctx.lineWidth = 1
+                ctx.strokeRect(boardX * BLOCK_SIZE, boardY * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
+              }
+            }
+          }
+        }
+      }
+
+      if (!gameOver && !isClearing) {
+        for (let y = 0; y < currentPiece.shape.length; y++) {
+          for (let x = 0; x < currentPiece.shape[y].length; x++) {
+            if (currentPiece.shape[y][x]) {
+              const boardX = position.x + x
+              const boardY = position.y + y
+              if (boardY >= 0) {
+                ctx.fillStyle = currentPiece.color
+                ctx.fillRect(boardX * BLOCK_SIZE, boardY * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
+
+                ctx.strokeStyle = "rgba(0, 0, 0, 0.3)"
+                ctx.lineWidth = 2
+                ctx.strokeRect(boardX * BLOCK_SIZE, boardY * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
+
+                ctx.fillStyle = "rgba(255, 255, 255, 0.3)"
+                ctx.fillRect(boardX * BLOCK_SIZE + 2, boardY * BLOCK_SIZE + 2, BLOCK_SIZE - 4, 4)
+
+                ctx.fillStyle = "rgba(0, 0, 0, 0.3)"
+                ctx.fillRect(boardX * BLOCK_SIZE + 2, boardY * BLOCK_SIZE + BLOCK_SIZE - 6, BLOCK_SIZE - 4, 4)
+              }
+            }
+          }
+        }
+      }
+
+      animationFrameRef.current = requestAnimationFrame(render)
+    }
+
+    render()
+
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current)
+      }
+    }
+  }, [board, currentPiece, position, gameOver, clearingLines, isClearing, checkCollision])
+
+  useEffect(() => {
     if (gameOver && !scoreSaved && !isSavingScore && user && score > 0) {
       setIsSavingScore(true)
       saveGameScore({
@@ -599,11 +695,10 @@ export default function TetrisGame() {
         xp: 0,
       })
         .then(() => {
-          console.log("[v0] Score saved successfully")
           setScoreSaved(true)
         })
         .catch((error) => {
-          console.error("[v0] Failed to save score:", error)
+          console.error("Failed to save score:", error)
         })
         .finally(() => {
           setIsSavingScore(false)
@@ -612,7 +707,9 @@ export default function TetrisGame() {
   }, [gameOver, scoreSaved, isSavingScore, user, score, lines, level, pieces, elapsedTime])
 
   return (
-    <div className="min-h-screen flex items-start sm:items-center justify-center px-2 py-2 sm:p-2 lg:p-8 bg-black">
+    <div className="min-h-screen flex items-start sm:items-center justify-center px-2 py-2 sm:p-2 lg:p-8 bg-black fixed inset-0 overflow-hidden select-none">
+      {showLeaderboard && <Leaderboard onClose={() => setShowLeaderboard(false)} />}
+
       <div className="flex flex-row gap-0.5 sm:gap-2 lg:gap-4 items-start justify-center w-full max-w-7xl">
         <div className="flex flex-col gap-1 sm:gap-2 lg:gap-4 w-14 sm:w-32 lg:w-52 flex-shrink-0 translate-x-8 sm:translate-x-0">
           <Card className="w-20 sm:w-24 lg:w-32 p-1 sm:p-2 lg:p-4 bg-zinc-900 border-zinc-600">
@@ -646,11 +743,18 @@ export default function TetrisGame() {
               <span className="text-[8px] sm:text-sm lg:text-lg font-bold">{formatTime(elapsedTime)}</span>
             </div>
           </Card>
+          <Button
+            onClick={() => setShowLeaderboard(true)}
+            variant="outline"
+            className="w-20 sm:w-24 lg:w-32 text-[9px] sm:text-sm bg-yellow-800 border-yellow-700 text-white hover:bg-yellow-700 active:bg-yellow-600 py-1 touch-manipulation pointer-events-auto"
+          >
+            Тэргүүлэгчид
+          </Button>
           {!gameOver && (
             <Button
               onClick={resetGame}
               variant="outline"
-              className="w-20 sm:w-24 lg:w-32 text-[9px] sm:text-sm bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700 py-1"
+              className="w-20 sm:w-24 lg:w-32 text-[9px] sm:text-sm bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700 active:bg-zinc-600 py-1 touch-manipulation pointer-events-auto"
             >
               Шинэ тоглоом
             </Button>
@@ -658,45 +762,77 @@ export default function TetrisGame() {
           <Button
             onClick={() => router.push("/")}
             variant="outline"
-            className="w-20 sm:w-24 lg:w-32 text-[9px] sm:text-sm bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700 py-1"
+            className="w-20 sm:w-24 lg:w-32 text-[9px] sm:text-sm bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700 active:bg-zinc-600 py-1 touch-manipulation pointer-events-auto"
           >
             Гарах
           </Button>
         </div>
 
         <div className="flex flex-col gap-1 sm:gap-2 lg:gap-4 flex-shrink-0">
-          <div className="flex justify-center mb-26">
+          <div className="flex justify-center mb-26 relative">
             <canvas
               ref={canvasRef}
               width={BOARD_WIDTH * BLOCK_SIZE}
               height={BOARD_HEIGHT * BLOCK_SIZE}
-              className="border-2 border-zinc-800 rounded w-[130px] sm:w-[240px] lg:w-[300px] h-auto"
+              className="border-2 border-zinc-800 rounded w-[130px] sm:w-[240px] lg:w-[300px] h-auto touch-none"
               style={{ imageRendering: "pixelated", touchAction: "none" }}
             />
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
               <div className="text-3xl sm:text-6xl lg:text-9xl font-bold text-zinc-800/50">{score}</div>
             </div>
           </div>
-          {/* Гар утас / Таблет товчлуурууд */}
-<div className="flex flex-col justify-center items-center gap-2 mt-2 sm:mt-4 lg:hidden transform translate-y-10">
-  {/* Дээд эгнээ */}
-  <div className="flex justify-center gap-2">
-    <Button onClick={moveLeft} className="w-16 h-16 text-2xl bg-zinc-700 hover:bg-zinc-600">◀</Button>
-    <Button onClick={moveRight} className="w-16 h-16 text-2xl bg-zinc-700 hover:bg-zinc-600">▶</Button>
-    <Button onClick={moveDown} className="w-16 h-16 text-2xl bg-zinc-700 hover:bg-zinc-600">▼</Button>
-    <Button onClick={rotatePiece} className="w-16 h-16 text-2xl bg-blue-700 hover:bg-blue-600">⟳</Button>
-  </div>
-
-  {/* Доод эгнээ */}
-  <div className="flex justify-center gap-2">
-    <Button onClick={holdCurrentPiece} className="w-16 h-16 text-2xl bg-yellow-700 hover:bg-yellow-600">H</Button>
-    <Button onClick={hardDrop} className="w-16 h-16 text-2xl bg-red-700 hover:bg-red-600">⇩</Button>
-  </div>
-</div>
-</div>
+          <div className="flex flex-col justify-center items-center gap-2 mt-2 sm:mt-4 lg:hidden transform translate-y-10 relative z-10">
+            <div className="flex justify-center gap-2">
+              <Button
+                onClick={moveLeft}
+                className="w-16 h-16 text-2xl bg-zinc-700 hover:bg-zinc-600 touch-manipulation active:bg-zinc-500 pointer-events-auto"
+                style={{ touchAction: "manipulation" }}
+              >
+                ◀
+              </Button>
+              <Button
+                onClick={moveRight}
+                className="w-16 h-16 text-2xl bg-zinc-700 hover:bg-zinc-600 touch-manipulation active:bg-zinc-500 pointer-events-auto"
+                style={{ touchAction: "manipulation" }}
+              >
+                ▶
+              </Button>
+              <Button
+                onClick={moveDown}
+                className="w-16 h-16 text-2xl bg-zinc-700 hover:bg-zinc-600 touch-manipulation active:bg-zinc-500 pointer-events-auto"
+                style={{ touchAction: "manipulation" }}
+              >
+                ▼
+              </Button>
+              <Button
+                onClick={rotatePiece}
+                className="w-16 h-16 text-2xl bg-blue-700 hover:bg-blue-600 touch-manipulation active:bg-blue-500 pointer-events-auto"
+                style={{ touchAction: "manipulation" }}
+              >
+                ⟳
+              </Button>
+            </div>
+            <div className="flex justify-center gap-2">
+              <Button
+                onClick={holdCurrentPiece}
+                className="w-16 h-16 text-2xl bg-yellow-700 hover:bg-yellow-600 touch-manipulation active:bg-yellow-500 pointer-events-auto"
+                style={{ touchAction: "manipulation" }}
+              >
+                H
+              </Button>
+              <Button
+                onClick={hardDrop}
+                className="w-16 h-16 text-2xl bg-red-700 hover:bg-red-600 touch-manipulation active:bg-red-500 pointer-events-auto"
+                style={{ touchAction: "manipulation" }}
+              >
+                ⇩
+              </Button>
+            </div>
+          </div>
+        </div>
 
         <div className="flex flex-col gap-1 sm:gap-2 lg:gap-4 w-14 sm:w-32 lg:w-52 flex-shrink-0">
-          <Card className="w-20 sm:w-24 lg:w-32 p-1 sm:p-2 lg:p-4 bg-zinc-900 border-zinc-800 -translate-x-11 sm:translate-x-0">
+          <Card className="w-20 sm:w-24 lg:w-32 p-1 sm:p-2 lg:p-3 bg-zinc-900 border-zinc-800 -translate-x-11 sm:translate-x-0">
             <h2 className="text-[9px] sm:text-xs lg:text-sm font-bold mb-1 sm:mb-2 lg:mb-3 text-white uppercase tracking-wider">
               Next
             </h2>
@@ -718,7 +854,11 @@ export default function TetrisGame() {
               <p className="text-[9px] sm:text-sm text-white mb-2 sm:mb-3 lg:mb-1">Оноо: {score}</p>
               {isSavingScore && <p className="text-[6px] sm:text-xs text-yellow-400">Оноо хадгалж байна...</p>}
               {scoreSaved && <p className="text-[6px] sm:text-xs text-green-400 -mb-4">Оноо хадгалагдлаа!</p>}
-              <Button onClick={resetGame} className="w-full text-[6px] sm:text-sm bg-red-600 hover:bg-red-700 py-1">
+              <Button
+                onClick={resetGame}
+                className="w-full text-[6px] sm:text-sm bg-red-600 hover:bg-red-700 active:bg-red-800 py-1 touch-manipulation pointer-events-auto"
+                style={{ touchAction: "manipulation" }}
+              >
                 Нахих
               </Button>
             </Card>
