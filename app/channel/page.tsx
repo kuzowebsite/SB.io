@@ -32,7 +32,7 @@ export default function TetraChannelPage() {
               </Button>
               <Link href="/" className="text-2xl font-bold font-mono">
                 <span className="text-primary">SB</span>
-                <span className="text-black">.io</span>
+                <span className="text-black">.iO</span>
               </Link>
               <h1 className="text-xl sm:text-2xl font-bold">SB CHANNEL</h1>
             </div>
@@ -48,7 +48,7 @@ export default function TetraChannelPage() {
                 onClick={() => setActiveTab("home")}
                 className="text-sm sm:text-base font-semibold"
               >
-                HOME
+                RANK
               </Button>
               <Button
                 variant={activeTab === "leaderboards" ? "default" : "ghost"}
@@ -87,7 +87,7 @@ function HomeTab() {
         setError(null)
       })
       .catch((err) => {
-        console.error("[v0] Error loading home data:", err)
+        console.error("Error loading home data:", err)
         setError("Өгөгдөл татахад алдаа гарлаа. Дахин оролдоно уу.")
       })
       .finally(() => setLoading(false))
@@ -124,24 +124,8 @@ function HomeTab() {
       <div className="text-center space-y-4">
         <h2 className="text-3xl sm:text-4xl font-bold">Welcome to SB CHANNEL</h2>
         <p className="text-muted-foreground text-lg">
-          Тоглогчдын статистик, leaderboard болон бусад мэдээллийг энд харна уу
+          Цолны дараалал, leaderboard болон бусад мэдээллийг харна уу
         </p>
-      </div>
-
-      {/* Featured Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="p-6 rounded-lg border border-primary/20 bg-card">
-          <div className="text-4xl font-bold text-primary mb-2">{totalPlayers.toLocaleString()}</div>
-          <div className="text-sm text-muted-foreground">Нийт тоглогчид</div>
-        </div>
-        <div className="p-6 rounded-lg border border-secondary/20 bg-card">
-          <div className="text-4xl font-bold black mb-2">{totalGames.toLocaleString()}</div>
-          <div className="text-sm text-muted-foreground">Нийт тоглолтууд</div>
-        </div>
-        <div className="p-6 rounded-lg border border-green-500/20 bg-card">
-          <div className="text-4xl font-bold text-green-500 mb-2">{onlinePlayers.toLocaleString()}</div>
-          <div className="text-sm text-muted-foreground">Одоо онлайн тоглогчид</div>
-        </div>
       </div>
 
       {/* Rank System Info */}
@@ -246,7 +230,7 @@ function LeaderboardsTab() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-3xl font-bold">Rank</h2>
+        <h2 className="text-3xl font-bold">RANK</h2>
         <p className="text-sm text-muted-foreground mt-1">Нэг тоглолтын хамгийн өндөр оноогоор эрэмблэгдсэн</p>
       </div>
 
@@ -267,7 +251,7 @@ function LeaderboardsTab() {
                 <div className="flex items-center gap-4">
                   {/* Rank Number */}
                   <div className="flex-shrink-0 w-12 text-center">
-                    <span className={`text-2xl font-bold ${index < 3 ? "text-primary" : "text-muted-foreground"}`}>
+                    <span className={`text-1xl font-bold ${index < 3 ? "text-primary" : "text-muted-foreground"}`}>
                       #{index + 1}
                     </span>
                   </div>
@@ -275,7 +259,7 @@ function LeaderboardsTab() {
                   {/* Rank Badge */}
                   <div className="flex-shrink-0">
   <div
-    className="w-16 h-16 rounded-lg border-2 flex items-center justify-center overflow-hidden"
+    className="w-10 h-10 rounded-lg border-2 flex items-center justify-center overflow-hidden"
     style={{ borderColor: rank.color }}
   >
     {/* Хэрвээ profilePictureURL байгаа бол харуулна */}
@@ -293,7 +277,6 @@ function LeaderboardsTab() {
     )}
   </div>
 </div>
-
                   {/* Player Info */}
                   <div className="flex-1 min-w-0">
                     <div className="font-bold text-lg truncate">{entry.userName}</div>
@@ -304,7 +287,6 @@ function LeaderboardsTab() {
                     </div>
                   </div>
 
-                  {/* Stats */}
                   {/* Stats */}
 <div className="flex flex-col sm:flex-row gap-1 sm:gap-6 text-[8px] sm:text-sm">
   <div className="text-center">
