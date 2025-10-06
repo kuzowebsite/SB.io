@@ -12,7 +12,7 @@ import {
   subscribeToOnlinePlayers,
   type LeaderboardEntry,
 } from "@/lib/game-service"
-import { getRankByScore, RANKS, type Rank } from "@/lib/rank-system"
+import { getRankByScore, RANKS, getLevelFromXP, type Rank } from "@/lib/rank-system"
 import { ArrowLeft, AlertCircle } from "lucide-react"
 
 export default function TetraChannelPage() {
@@ -121,9 +121,7 @@ function HomeTab() {
     <div className="space-y-8">
       <div className="text-center space-y-4">
         <h2 className="text-3xl sm:text-4xl font-bold">Welcome to SB CHANNEL</h2>
-        <p className="text-muted-foreground text-lg">
-          Цолны дараалал, leaderboard болон бусад мэдээллийг харна уу
-        </p>
+        <p className="text-muted-foreground text-lg">Цолны дараалал, leaderboard болон бусад мэдээллийг харна уу</p>
       </div>
 
       {/* Rank System Info */}
@@ -141,7 +139,11 @@ function HomeTab() {
               style={{ borderColor: rank.color + "40" }}
             >
               <div className="flex items-center gap-2 mb-1">
-                <img src={rank.icon} alt={rank.name} className="w-6 h-6 rounded-full object-cover" />
+                <img
+                  src={rank.icon || "/placeholder.svg"}
+                  alt={rank.name}
+                  className="w-6 h-6 rounded-full object-cover"
+                />
                 <span className="font-bold text-xs" style={{ color: rank.color }}>
                   {rank.name}
                 </span>
@@ -163,7 +165,11 @@ function HomeTab() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-3 mb-4">
-              <img src={selectedRank.icon} alt={selectedRank.name} className="w-12 h-12 rounded-full object-cover" />
+              <img
+                src={selectedRank.icon || "/placeholder.svg"}
+                alt={selectedRank.name}
+                className="w-12 h-12 rounded-full object-cover"
+              />
               <div>
                 <h3 className="text-xl font-bold" style={{ color: selectedRank.color }}>
                   {selectedRank.name}
@@ -210,9 +216,8 @@ function LeaderboardsTab() {
       setFilteredScores(scores)
     } else {
       const term = searchTerm.toLowerCase()
-      setFilteredScores(
-        scores.filter((entry) => entry.userName.toLowerCase().includes(term))
-      )
+      const filtered = scores.filter((entry) => entry.userName.toLowerCase().includes(term))
+      setFilteredScores(filtered)
     }
   }, [searchTerm, scores])
 
@@ -263,37 +268,87 @@ function LeaderboardsTab() {
         <div className="space-y-3">
           {filteredScores.map((entry, index) => {
             const rank = getRankByScore(entry.bestScore)
+            const level = getLevelFromXP(entry.totalXP || 0)
+            const originalIndex = scores.findIndex((s) => s.id === entry.id)
+            const position = originalIndex !== -1 ? originalIndex + 1 : index + 1
+
+            const getElectricIntensity = (pos: number) => {
+              if (pos <= 3) return 1.0 // Very bright for top 3
+              if (pos <= 10) return 0.7 // Medium for 4-10
+              if (pos <= 20) return 0.4 // Subtle for 11-20
+              return 0.2 // Very subtle for 21+
+            }
+
+            const intensity = getElectricIntensity(position)
+
             return (
               <div
                 key={entry.id}
-                className="p-4 rounded-lg border bg-card hover:border-primary/50 transition-colors"
+                className="relative p-4 rounded-lg border bg-card hover:border-primary/50 transition-colors overflow-hidden"
                 style={{ borderColor: rank.color + "30" }}
               >
-                <div className="flex items-center gap-4">
-                  {/* Rank Number */}
+                <div className="absolute inset-0 pointer-events-none" style={{ opacity: intensity }}>
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-electric-spark-1" />
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-cyan-400/30 to-transparent animate-electric-spark-2" />
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-electric-spark-3" />
+                  <div className="absolute inset-0 bg-cyan-500/10 animate-electric-pulse" />
+                </div>
+
+                <div className="relative flex items-center gap-4">
                   <div className="flex-shrink-0 w-12 text-center">
-                    <span className={`text-1xl font-bold ${index < 3 ? "text-primary" : "text-muted-foreground"}`}>
-                      #{index + 1}
+                    <span
+                      className={`text-xl font-bold ${position <= 3 ? "text-primary animate-electric-shimmer" : "text-muted-foreground"}`}
+                      style={
+                        position <= 3
+                          ? {
+                              textShadow: `0 0 10px ${rank.color}, 0 0 20px ${rank.color}`,
+                            }
+                          : {}
+                      }
+                    >
+                      №{position}
                     </span>
                   </div>
 
                   {/* Rank Badge / Profile */}
                   <div className="flex-shrink-0">
-                    <div className="w-10 h-10 rounded-lg border-2 flex items-center justify-center overflow-hidden" style={{ borderColor: rank.color }}>
+                    <div
+                      className="w-10 h-10 rounded-lg border-2 flex items-center justify-center overflow-hidden"
+                      style={{
+                        borderColor: rank.color,
+                        boxShadow: position <= 3 ? `0 0 15px ${rank.color}` : "none",
+                      }}
+                    >
                       {entry.profilePictureURL ? (
-                        <img src={entry.profilePictureURL} alt={entry.userName} className="w-full h-full object-cover" />
+                        <img
+                          src={entry.profilePictureURL || "/placeholder.svg"}
+                          alt={entry.userName}
+                          className="w-full h-full object-cover"
+                        />
                       ) : (
-                        <img src={rank.icon} alt={rank.name} className="w-full h-full object-cover" />
+                        <img
+                          src={rank.icon || "/placeholder.svg"}
+                          alt={rank.name}
+                          className="w-full h-full object-cover"
+                        />
                       )}
                     </div>
                   </div>
 
-                  {/* Player Info */}
                   <div className="flex-1 min-w-0">
-                    <div className="font-bold text-lg truncate">{entry.userName}</div>
-                    <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold px-2 py-0.5 rounded bg-primary/20 text-primary border border-primary/30">
+                        LV {level}
+                      </span>
+                      <div className="font-bold text-lg truncate">{entry.userName}</div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap mt-1">
                       <span className="text-sm font-semibold flex items-center gap-1" style={{ color: rank.color }}>
-                        <img src={rank.icon} alt={rank.name} className="w-4 h-4 rounded-full object-cover" />
+                        <img
+                          src={rank.icon || "/placeholder.svg"}
+                          alt={rank.name}
+                          className="w-4 h-4 rounded-full object-cover"
+                        />
                         {rank.name}
                       </span>
                     </div>
@@ -303,7 +358,9 @@ function LeaderboardsTab() {
                   <div className="flex flex-col sm:flex-row gap-1 sm:gap-6 text-[8px] sm:text-sm">
                     <div className="text-center">
                       <div className="text-muted-foreground text-[8px] sm:text-xs">Best Score</div>
-                      <div className="font-mono font-semibold text-primary text-[10px] sm:text-base">{entry.bestScore.toLocaleString()}</div>
+                      <div className="font-mono font-semibold text-primary text-[10px] sm:text-base">
+                        {entry.bestScore.toLocaleString()}
+                      </div>
                     </div>
                     <div className="text-center">
                       <div className="text-muted-foreground text-[8px] sm:text-xs">Games</div>
@@ -311,7 +368,9 @@ function LeaderboardsTab() {
                     </div>
                     <div className="text-center">
                       <div className="text-muted-foreground text-[8px] sm:text-xs">Lines</div>
-                      <div className="font-mono font-semibold text-[10px] sm:text-base">{entry.lines.toLocaleString()}</div>
+                      <div className="font-mono font-semibold text-[10px] sm:text-base">
+                        {entry.lines.toLocaleString()}
+                      </div>
                     </div>
                   </div>
                 </div>
