@@ -274,13 +274,25 @@ function LeaderboardsTab() {
 
                   {/* Rank Badge */}
                   <div className="flex-shrink-0">
-                    <div
-                      className="w-16 h-16 rounded-lg flex flex-col items-center justify-center"
-                      style={{ backgroundColor: rank.color + "20", borderColor: rank.color, borderWidth: 2 }}
-                    >
-                      <span className="text-2xl">{rank.icon}</span>
-                    </div>
-                  </div>
+  <div
+    className="w-16 h-16 rounded-lg border-2 flex items-center justify-center overflow-hidden"
+    style={{ borderColor: rank.color }}
+  >
+    {/* Хэрвээ profilePictureURL байгаа бол харуулна */}
+    {entry.profilePictureURL ? (
+      <img
+        src={entry.profilePictureURL}
+        alt={entry.userName}
+        className="w-full h-full object-cover"
+      />
+    ) : (
+      // Зураг байхгүй бол initials харуулна
+      <span className="text-lg font-bold text-primary">
+        {entry.userName[0].toUpperCase()}
+      </span>
+    )}
+  </div>
+</div>
 
                   {/* Player Info */}
                   <div className="flex-1 min-w-0">
@@ -293,20 +305,21 @@ function LeaderboardsTab() {
                   </div>
 
                   {/* Stats */}
-                  <div className="hidden sm:flex gap-6 text-sm">
-                    <div className="text-center">
-                      <div className="text-muted-foreground text-xs">Best Score</div>
-                      <div className="font-mono font-semibold text-primary">{entry.bestScore.toLocaleString()}</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-muted-foreground text-xs">Games</div>
-                      <div className="font-mono font-semibold">{entry.totalGames}</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-muted-foreground text-xs">Lines</div>
-                      <div className="font-mono font-semibold">{entry.lines.toLocaleString()}</div>
-                    </div>
-                  </div>
+                  {/* Stats */}
+<div className="flex flex-col sm:flex-row gap-1 sm:gap-6 text-[8px] sm:text-sm">
+  <div className="text-center">
+    <div className="text-muted-foreground text-[8px] sm:text-xs">Best Score</div>
+    <div className="font-mono font-semibold text-primary text-[10px] sm:text-base">{entry.bestScore.toLocaleString()}</div>
+  </div>
+  <div className="text-center">
+    <div className="text-muted-foreground text-[8px] sm:text-xs">Games</div>
+    <div className="font-mono font-semibold text-[10px] sm:text-base">{entry.totalGames}</div>
+  </div>
+  <div className="text-center">
+    <div className="text-muted-foreground text-[8px] sm:text-xs">Lines</div>
+    <div className="font-mono font-semibold text-[10px] sm:text-base">{entry.lines.toLocaleString()}</div>
+  </div>
+</div>
                 </div>
               </div>
             )
