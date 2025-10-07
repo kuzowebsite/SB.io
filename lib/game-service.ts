@@ -110,7 +110,7 @@ async function updateUserProfile(
         totalScore: score,
         bestScore: score,
         totalLines: lines,
-        battlePoints: 0, // Initialize battle points at 0 (like ELO)
+        battlePoints: 1000, // Initialize battle points at 1000 (like ELO)
         battleWins: 0, // Initialize battle wins
         battleLosses: 0, // Initialize battle losses
         createdAt: new Date(),
