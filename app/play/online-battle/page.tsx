@@ -181,6 +181,9 @@ export default function OnlineBattlePage() {
 
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
 
+  const [opponentFinishedFirst, setOpponentFinishedFirst] = useState(false)
+  const [opponentFinalScore, setOpponentFinalScore] = useState<number | null>(null)
+
   useEffect(() => {
     audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
     return () => {
@@ -287,15 +290,13 @@ export default function OnlineBattlePage() {
 
     const updateBattle = async () => {
       try {
-        const iWon = score > opponentState.score || (score >= opponentState.score && !opponentState.gameOver)
+        const iWon = score > opponentState.score
         setBattleResult(iWon ? "win" : "loss")
 
-        console.log("[v0] Battle ended:", {
+        console.log("[v0] Battle ended - both players finished:", {
           iWon,
           myScore: score,
           opponentScore: opponentState.score,
-          myGameOver: gameOver,
-          opponentGameOver: opponentState.gameOver,
         })
 
         if (iWon) {
@@ -342,6 +343,7 @@ export default function OnlineBattlePage() {
     updateBattle()
   }, [
     gameOver,
+    opponentState.gameOver,
     user,
     opponentId,
     myProfile,
@@ -349,7 +351,6 @@ export default function OnlineBattlePage() {
     score,
     opponentState.score,
     opponentState.lines,
-    opponentState.gameOver,
     lines,
     elapsedTime,
     battlePointsChange,
@@ -507,6 +508,14 @@ export default function OnlineBattlePage() {
       unsubscribe()
     }
   }, [matchId, opponentId])
+
+  useEffect(() => {
+    if (opponentState.gameOver && !gameOver && opponentFinalScore === null) {
+      setOpponentFinishedFirst(true)
+      setOpponentFinalScore(opponentState.score)
+      console.log("[v0] Opponent finished first with score:", opponentState.score)
+    }
+  }, [opponentState.gameOver, opponentState.score, gameOver, opponentFinalScore])
 
   const checkCollision = useCallback(
     (piece: Tetromino, pos: Position): boolean => {
@@ -786,9 +795,7 @@ export default function OnlineBattlePage() {
   }
 
   const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins}:${secs.toString().padStart(2, "0")}`
+    return `${seconds}s`
   }
 
   useEffect(() => {
@@ -1001,6 +1008,18 @@ export default function OnlineBattlePage() {
 
   return (
     <div className="min-h-screen flex items-start sm:items-center justify-center px-2 py-2 sm:p-4 lg:p-8 bg-black fixed inset-0 overflow-hidden">
+      {opponentFinishedFirst && !gameOver && opponentFinalScore !== null && (
+        <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-none">
+          <Card className="bg-red-900/90 border-red-600 p-4 text-center">
+            <div className="text-xl font-bold text-white mb-2">Target Score</div>
+            <div className="text-3xl font-bold text-yellow-400">{opponentFinalScore}</div>
+            <div className="text-sm text-zinc-300 mt-2">
+              {score > opponentFinalScore ? "Хожиж байна! 🏆" : "Илүү оноо авах хэрэгтэй!"}
+            </div>
+          </Card>
+        </div>
+      )}
+
       <div className="fixed top-2 right-2 sm:top-4 sm:right-4 z-50">
         <Card className="bg-zinc-900/95 border-zinc-700 p-1.5 sm:p-2">
           <div className="flex items-center gap-1 mb-1">
