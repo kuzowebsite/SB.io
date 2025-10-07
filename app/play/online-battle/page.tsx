@@ -1,1084 +1,520 @@
-"use client"
-
-import { useEffect, useRef, useState, useCallback } from "react"
-import { useRouter } from "next/navigation"
-import { Card } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { useAuth } from "@/lib/auth-context"
 import { db } from "@/lib/firebase"
 import {
   collection,
   addDoc,
   query,
-  where,
-  onSnapshot,
-  updateDoc,
-  doc,
-  deleteDoc,
+  orderBy,
+  limit,
   getDocs,
-  serverTimestamp,
+  where,
+  doc,
   setDoc,
+  getDoc,
+  deleteDoc,
 } from "firebase/firestore"
-import { getRankByBattlePoints, type BattleRank } from "@/lib/rank-system"
-import { updateBattleResult, getUserProfile, type UserProfile } from "@/lib/game-service"
+import { ref, onValue, onDisconnect, set, serverTimestamp, get } from "firebase/database"
+import { realtimeDb } from "@/lib/firebase"
+import { calculateXPFromScore } from "@/lib/rank-system"
 
-const BLOCK_SIZE = 30
-const BOARD_WIDTH = 10
-const BOARD_HEIGHT = 20
-const OPPONENT_BLOCK_SIZE = 10
-
-type TetrominoType = "I" | "O" | "T" | "S" | "Z" | "J" | "L"
-
-interface Position {
-  x: number
-  y: number
-}
-
-interface Tetromino {
-  shape: number[][]
-  color: string
-  type: TetrominoType
-}
-
-interface GameState {
-  board: number[][]
-  boardColors: string[][]
-  currentPiece: Tetromino | null
-  position: Position
+export interface GameScore {
+  userId: string
+  userName: string
   score: number
   lines: number
   level: number
-  gameOver: boolean
+  pieces: number
+  time: number
+  xp: number
+  date: Date
 }
 
-const TETROMINOS: Record<TetrominoType, Omit<Tetromino, "type">> = {
-  I: {
-    shape: [
-      [0, 0, 0, 0],
-      [1, 1, 1, 1],
-      [0, 0, 0, 0],
-      [0, 0, 0, 0],
-    ],
-    color: "#00f0f0",
-  },
-  O: {
-    shape: [
-      [1, 1],
-      [1, 1],
-    ],
-    color: "#f0f000",
-  },
-  T: {
-    shape: [
-      [0, 1, 0],
-      [1, 1, 1],
-      [0, 0, 0],
-    ],
-    color: "#a000f0",
-  },
-  S: {
-    shape: [
-      [0, 1, 1],
-      [1, 1, 0],
-      [0, 0, 0],
-    ],
-    color: "#00f000",
-  },
-  Z: {
-    shape: [
-      [1, 1, 0],
-      [0, 1, 1],
-      [0, 0, 0],
-    ],
-    color: "#f00000",
-  },
-  J: {
-    shape: [
-      [1, 0, 0],
-      [1, 1, 1],
-      [0, 0, 0],
-    ],
-    color: "#0000f0",
-  },
-  L: {
-    shape: [
-      [0, 0, 1],
-      [1, 1, 1],
-      [0, 0, 0],
-    ],
-    color: "#f0a000",
-  },
+export interface LeaderboardEntry {
+  id: string
+  userId: string
+  userName: string
+  bestScore: number
+  totalScore: number
+  lines: number
+  totalGames: number
+  totalXP: number
+  profilePictureURL?: string
+  date: Date
 }
 
-function createEmptyBoard(): number[][] {
-  return Array.from({ length: BOARD_HEIGHT }, () => Array(BOARD_WIDTH).fill(0))
+export interface UserProfile {
+  userId: string
+  userName: string
+  profilePictureURL?: string
+  totalXP: number
+  totalGames: number
+  totalScore: number
+  bestScore: number
+  totalLines: number
+  battlePoints: number // Added battle points for online battles (ELO-style rating)
+  battleWins: number // Added battle wins counter
+  battleLosses: number // Added battle losses counter
+  createdAt: Date
+  updatedAt: Date
 }
 
-function createEmptyColorBoard(): string[][] {
-  return Array.from({ length: BOARD_HEIGHT }, () => Array(BOARD_WIDTH).fill(""))
+export async function saveGameScore(gameData: GameScore): Promise<void> {
+  try {
+    // Calculate XP for this game
+    const xp = calculateXPFromScore(gameData.score, gameData.lines, gameData.level)
+
+    // Save the game score
+    await addDoc(collection(db, "scores"), {
+      ...gameData,
+      xp,
+      date: new Date(),
+    })
+
+    // Update user profile
+    await updateUserProfile(gameData.userId, gameData.userName, xp, gameData.score, gameData.lines)
+  } catch (error) {
+    console.error("[v0] Error saving game score:", error)
+    throw error
+  }
 }
 
-function getRandomTetromino(): Tetromino {
-  const types: TetrominoType[] = ["I", "O", "T", "S", "Z", "J", "L"]
-  const type = types[Math.floor(Math.random() * types.length)]
-  return { ...TETROMINOS[type], type }
-}
+async function updateUserProfile(
+  userId: string,
+  userName: string,
+  xpGained: number,
+  score: number,
+  lines: number,
+): Promise<void> {
+  const userRef = doc(db, "users", userId)
 
-function generateQueue(count: number): Tetromino[] {
-  return Array.from({ length: count }, () => getRandomTetromino())
-}
+  try {
+    const userDoc = await getDoc(userRef)
 
-export default function OnlineBattlePage() {
-  const router = useRouter()
-  const { user, loading } = useAuth()
-  const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const opponentCanvasRef = useRef<HTMLCanvasElement | null>(null)
-  const animationFrameRef = useRef<number | null>(null)
-  const audioContextRef = useRef<AudioContext | null>(null)
-
-  // Matchmaking state
-  const [matchmaking, setMatchmaking] = useState(true)
-  const [matchId, setMatchId] = useState<string | null>(null)
-  const [opponentId, setOpponentId] = useState<string | null>(null)
-  const [opponentName, setOpponentName] = useState<string>("")
-  const [error, setError] = useState<string | null>(null)
-
-  const [myProfile, setMyProfile] = useState<UserProfile | null>(null)
-  const [opponentProfile, setOpponentProfile] = useState<UserProfile | null>(null)
-  const [myRank, setMyRank] = useState<BattleRank | null>(null)
-  const [opponentRank, setOpponentRank] = useState<BattleRank | null>(null)
-  const [battlePointsChange, setBattlePointsChange] = useState<number | null>(null)
-  const [battleResult, setBattleResult] = useState<"win" | "loss" | null>(null)
-
-  const [board, setBoard] = useState<number[][]>(createEmptyBoard())
-  const boardColors = useRef<string[][]>(createEmptyColorBoard())
-  const [currentPiece, setCurrentPiece] = useState<Tetromino>(getRandomTetromino())
-  const [nextQueue, setNextQueue] = useState<Tetromino[]>(generateQueue(5))
-  const [holdPiece, setHoldPiece] = useState<Tetromino | null>(null)
-  const [canHold, setCanHold] = useState(true)
-  const [position, setPosition] = useState<Position>({ x: 3, y: 0 })
-  const [score, setScore] = useState(0)
-  const [lines, setLines] = useState(0)
-  const [level, setLevel] = useState(1)
-  const [pieces, setPieces] = useState(0)
-  const [inputs, setInputs] = useState(0)
-  const [startTime, setStartTime] = useState<number>(Date.now())
-  const [elapsedTime, setElapsedTime] = useState(0)
-  const [clearingLines, setClearingLines] = useState<number[]>([])
-  const [isClearing, setIsClearing] = useState(false)
-  const [gameOver, setGameOver] = useState(false)
-
-  const [opponentState, setOpponentState] = useState<GameState>({
-    board: createEmptyBoard(),
-    boardColors: createEmptyColorBoard(),
-    currentPiece: null,
-    position: { x: 0, y: 0 },
-    score: 0,
-    lines: 0,
-    level: 1,
-    gameOver: false,
-  })
-
-  const touchStartRef = useRef<{ x: number; y: number } | null>(null)
-
-  useEffect(() => {
-    audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
-    return () => {
-      audioContextRef.current?.close()
+    if (userDoc.exists()) {
+      const userData = userDoc.data() as UserProfile
+      await setDoc(userRef, {
+        ...userData,
+        totalXP: userData.totalXP + xpGained,
+        totalGames: userData.totalGames + 1,
+        totalScore: userData.totalScore + score,
+        bestScore: Math.max(userData.bestScore, score),
+        totalLines: userData.totalLines + lines,
+        updatedAt: new Date(),
+      })
+    } else {
+      // Create new user profile
+      await setDoc(userRef, {
+        userId,
+        userName,
+        totalXP: xpGained,
+        totalGames: 1,
+        totalScore: score,
+        bestScore: score,
+        totalLines: lines,
+        battlePoints: 1000, // Initialize battle points at 1000 (like ELO)
+        battleWins: 0, // Initialize battle wins
+        battleLosses: 0, // Initialize battle losses
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
     }
-  }, [])
+  } catch (error) {
+    console.error("[v0] Error updating user profile:", error)
+    throw error
+  }
+}
 
-  const playLineClearSound = useCallback(() => {
-    if (!audioContextRef.current) return
-    const ctx = audioContextRef.current
-    const oscillator = ctx.createOscillator()
-    const gainNode = ctx.createGain()
-    oscillator.connect(gainNode)
-    gainNode.connect(ctx.destination)
-    oscillator.type = "square"
-    oscillator.frequency.setValueAtTime(800, ctx.currentTime)
-    oscillator.frequency.exponentialRampToValueAtTime(400, ctx.currentTime + 0.1)
-    gainNode.gain.setValueAtTime(0.3, ctx.currentTime)
-    gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2)
-    oscillator.start(ctx.currentTime)
-    oscillator.stop(ctx.currentTime + 0.2)
-  }, [])
+export async function getTopScores(limitCount = 10): Promise<LeaderboardEntry[]> {
+  try {
+    const q = query(collection(db, "users"), orderBy("bestScore", "desc"), limit(limitCount))
 
-  const playGameOverSound = useCallback(() => {
-    if (!audioContextRef.current) return
-    const ctx = audioContextRef.current
-    const oscillator = ctx.createOscillator()
-    const gainNode = ctx.createGain()
-    oscillator.connect(gainNode)
-    gainNode.connect(ctx.destination)
-    oscillator.type = "sawtooth"
-    oscillator.frequency.setValueAtTime(440, ctx.currentTime)
-    oscillator.frequency.exponentialRampToValueAtTime(110, ctx.currentTime + 1)
-    gainNode.gain.setValueAtTime(0.4, ctx.currentTime)
-    gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 1)
-    oscillator.start(ctx.currentTime)
-    oscillator.stop(ctx.currentTime + 1)
-  }, [])
+    const querySnapshot = await getDocs(q)
+    const scores: LeaderboardEntry[] = []
 
-  useEffect(() => {
-    if (!user || !db) return
+    querySnapshot.forEach((docSnap) => {
+      const data = docSnap.data() as UserProfile
+      scores.push({
+        id: docSnap.id,
+        userId: data.userId,
+        userName: data.userName,
+        bestScore: data.bestScore,
+        totalScore: data.totalScore,
+        lines: data.totalLines,
+        totalGames: data.totalGames,
+        totalXP: data.totalXP,
+        profilePictureURL: data.profilePictureURL,
+        date: data.updatedAt,
+      })
+    })
 
-    const loadUserProfile = async () => {
-      try {
-        const profile = await getUserProfile(user.uid)
-        if (profile) {
-          setMyProfile(profile)
-          const rank = getRankByBattlePoints(profile.battlePoints || 1000)
-          setMyRank(rank)
-          console.log("[v0] Loaded user profile:", profile)
-        }
-      } catch (err) {
-        console.error("[v0] Error loading user profile:", err)
+    return scores
+  } catch (error) {
+    console.error("[v0] Error fetching top scores:", error)
+    return []
+  }
+}
+
+export async function getUserScores(userId: string, limitCount = 10): Promise<LeaderboardEntry[]> {
+  try {
+    const q = query(
+      collection(db, "scores"),
+      where("userId", "==", userId),
+      orderBy("score", "desc"),
+      limit(limitCount),
+    )
+
+    const querySnapshot = await getDocs(q)
+    const scores: LeaderboardEntry[] = []
+
+    querySnapshot.forEach((doc) => {
+      const data = doc.data()
+      scores.push({
+        id: doc.id,
+        userId: data.userId,
+        userName: data.userName,
+        bestScore: data.score, // Placeholder for bestScore, actual value will be fetched later if needed
+        totalScore: data.score,
+        lines: data.lines,
+        totalGames: data.score,
+        totalXP: data.xp,
+        profilePictureURL: data.score, // Placeholder for profilePictureURL, actual value will be fetched later if needed
+        date: data.date.toDate(),
+      })
+    })
+
+    return scores
+  } catch (error) {
+    console.error("[v0] Error fetching user scores:", error)
+    return []
+  }
+}
+
+export async function getTotalPlayers(): Promise<number> {
+  try {
+    const querySnapshot = await getDocs(collection(db, "users"))
+    return querySnapshot.size
+  } catch (error) {
+    console.error("[v0] Error fetching total players:", error)
+    return 0
+  }
+}
+
+export async function getTotalGames(): Promise<number> {
+  try {
+    const querySnapshot = await getDocs(collection(db, "scores"))
+    return querySnapshot.size
+  } catch (error) {
+    console.error("[v0] Error fetching total games:", error)
+    return 0
+  }
+}
+
+export async function getUserProfile(userId: string): Promise<UserProfile | null> {
+  try {
+    const userRef = doc(db, "users", userId)
+    const userDoc = await getDoc(userRef)
+
+    if (userDoc.exists()) {
+      return userDoc.data() as UserProfile
+    }
+    return null
+  } catch (error) {
+    console.error("[v0] Error fetching user profile:", error)
+    return null
+  }
+}
+
+export async function updateUserProfileData(
+  userId: string,
+  updates: Partial<Pick<UserProfile, "userName" | "profilePictureURL">>,
+): Promise<void> {
+  const userRef = doc(db, "users", userId)
+
+  try {
+    const userDoc = await getDoc(userRef)
+
+    if (userDoc.exists()) {
+      await setDoc(
+        userRef,
+        {
+          ...updates,
+          updatedAt: new Date(),
+        },
+        { merge: true },
+      )
+    }
+  } catch (error) {
+    console.error("[v0] Error updating user profile data:", error)
+    throw error
+  }
+}
+
+export function trackUserPresence(userId: string, userName: string): () => void {
+  if (typeof window === "undefined") return () => {}
+
+  const userStatusRef = ref(realtimeDb, `status/${userId}`)
+  const isOnlineData = {
+    state: "online",
+    userName,
+    lastChanged: serverTimestamp(),
+  }
+
+  const isOfflineData = {
+    state: "offline",
+    userName,
+    lastChanged: serverTimestamp(),
+  }
+
+  // Set user as online
+  set(userStatusRef, isOnlineData)
+
+  // Set user as offline when they disconnect
+  onDisconnect(userStatusRef).set(isOfflineData)
+
+  // Cleanup function
+  return () => {
+    set(userStatusRef, isOfflineData)
+  }
+}
+
+export async function getOnlinePlayers(): Promise<number> {
+  try {
+    const statusRef = ref(realtimeDb, "status")
+    const snapshot = await get(statusRef)
+
+    if (!snapshot.exists()) {
+      return 0
+    }
+
+    let onlineCount = 0
+    snapshot.forEach((childSnapshot) => {
+      const status = childSnapshot.val()
+      if (status.state === "online") {
+        onlineCount++
       }
-    }
+    })
 
-    loadUserProfile()
-  }, [user])
+    return onlineCount
+  } catch (error) {
+    console.error("[v0] Error fetching online players:", error)
+    return 0
+  }
+}
 
-  useEffect(() => {
-    if (!opponentId || !db) return
+export function subscribeToOnlinePlayers(callback: (count: number) => void): () => void {
+  const statusRef = ref(realtimeDb, "status")
 
-    const loadOpponentProfile = async () => {
-      try {
-        const profile = await getUserProfile(opponentId)
-        if (profile) {
-          setOpponentProfile(profile)
-          const rank = getRankByBattlePoints(profile.battlePoints || 1000)
-          setOpponentRank(rank)
-          console.log("[v0] Loaded opponent profile:", profile)
-        }
-      } catch (err) {
-        console.error("[v0] Error loading opponent profile:", err)
-      }
-    }
-
-    loadOpponentProfile()
-  }, [opponentId])
-
-  useEffect(() => {
-    if (!gameOver || !user || !opponentId || !db || battlePointsChange !== null) return
-    if (!myProfile || !opponentProfile) return
-
-    const updateBattle = async () => {
-      try {
-        // Determine winner based on score and game over status
-        const iWon = score > opponentState.score || (score >= opponentState.score && !opponentState.gameOver)
-        setBattleResult(iWon ? "win" : "loss")
-
-        console.log("[v0] Battle ended:", { iWon, myScore: score, opponentScore: opponentState.score })
-
-        if (iWon) {
-          // I won, opponent lost
-          await updateBattleResult(user.uid, opponentId, {
-            winnerScore: score,
-            winnerLines: lines,
-            winnerTime: elapsedTime,
-            loserScore: opponentState.score,
-            loserLines: opponentState.lines,
-            loserTime: elapsedTime, // Approximate
-          })
-        } else {
-          // I lost, opponent won
-          await updateBattleResult(opponentId, user.uid, {
-            winnerScore: opponentState.score,
-            winnerLines: opponentState.lines,
-            winnerTime: elapsedTime, // Approximate
-            loserScore: score,
-            loserLines: lines,
-            loserTime: elapsedTime,
-          })
-        }
-
-        // Reload my profile to get updated battle points
-        const updatedProfile = await getUserProfile(user.uid)
-        if (updatedProfile) {
-          const pointsChange = updatedProfile.battlePoints - myProfile.battlePoints
-          setBattlePointsChange(pointsChange)
-          setMyProfile(updatedProfile)
-          const newRank = getRankByBattlePoints(updatedProfile.battlePoints)
-          setMyRank(newRank)
-          console.log("[v0] Battle points updated:", { pointsChange, newPoints: updatedProfile.battlePoints })
-        }
-      } catch (err) {
-        console.error("[v0] Error updating battle result:", err)
-      }
-    }
-
-    updateBattle()
-  }, [
-    gameOver,
-    user,
-    opponentId,
-    myProfile,
-    opponentProfile,
-    score,
-    opponentState.score,
-    opponentState.lines,
-    opponentState.gameOver,
-    lines,
-    elapsedTime,
-  ])
-
-  useEffect(() => {
-    if (!user || !matchmaking || loading || !db) {
-      console.log("[v0] Skipping matchmaking:", { user: !!user, matchmaking, loading, db: !!db })
+  const unsubscribe = onValue(statusRef, (snapshot) => {
+    if (!snapshot.exists()) {
+      callback(0)
       return
     }
 
-    let matchmakingDoc: string | null = null
-    let unsubscribe: (() => void) | null = null
-
-    const findMatch = async () => {
-      try {
-        console.log("[v0] Starting matchmaking...")
-        const q = query(collection(db, "matchmaking"), where("status", "==", "waiting"))
-        const snapshot = await getDocs(q)
-        const availableMatches = snapshot.docs.filter((doc) => doc.data().playerId !== user.uid)
-
-        if (availableMatches.length > 0) {
-          console.log("[v0] Found existing match")
-          const waitingMatch = availableMatches[0]
-          const matchData = waitingMatch.data()
-
-          await updateDoc(doc(db, "matchmaking", waitingMatch.id), {
-            player2Id: user.uid,
-            player2Name: user.displayName || user.email || "Player 2",
-            status: "matched",
-          })
-
-          setMatchId(waitingMatch.id)
-          setOpponentId(matchData.playerId)
-          setOpponentName(matchData.playerName)
-          setMatchmaking(false)
-          console.log("[v0] Matched successfully")
-        } else {
-          console.log("[v0] Creating new match")
-          const docRef = await addDoc(collection(db, "matchmaking"), {
-            playerId: user.uid,
-            playerName: user.displayName || user.email || "Player 1",
-            player2Id: null,
-            player2Name: null,
-            status: "waiting",
-            createdAt: serverTimestamp(),
-          })
-
-          matchmakingDoc = docRef.id
-          console.log("[v0] Waiting for opponent...")
-
-          unsubscribe = onSnapshot(doc(db, "matchmaking", docRef.id), (doc) => {
-            const data = doc.data()
-            if (data && data.status === "matched" && data.player2Id) {
-              console.log("[v0] Opponent found!")
-              setMatchId(docRef.id)
-              setOpponentId(data.player2Id)
-              setOpponentName(data.player2Name)
-              setMatchmaking(false)
-            }
-          })
-        }
-      } catch (err) {
-        console.error("[v0] Matchmaking error:", err)
-        setError("Firebase холболтын алдаа. Та Firebase тохиргоогоо шалгана уу.")
-      }
-    }
-
-    findMatch()
-
-    return () => {
-      if (unsubscribe) unsubscribe()
-      if (matchmakingDoc) {
-        deleteDoc(doc(db, "matchmaking", matchmakingDoc)).catch(console.error)
-      }
-    }
-  }, [user, matchmaking, loading])
-
-  useEffect(() => {
-    if (!matchId || !user || gameOver || !db) return
-
-    const gameStateData = {
-      board,
-      boardColors: boardColors.current,
-      currentPiece,
-      position,
-      score,
-      lines,
-      level,
-      gameOver,
-      updatedAt: Date.now(),
-    }
-
-    setDoc(doc(db, "battleGames", `${matchId}_${user.uid}`), gameStateData, { merge: true }).catch((err) => {
-      console.error("[v0] Error syncing game state:", err)
-    })
-  }, [matchId, user, board, currentPiece, position, score, lines, level, gameOver])
-
-  useEffect(() => {
-    if (!matchId || !opponentId || !db) return
-
-    const unsubscribe = onSnapshot(
-      doc(db, "battleGames", `${matchId}_${opponentId}`),
-      (doc) => {
-        const data = doc.data()
-        if (data) {
-          setOpponentState({
-            board: data.board || createEmptyBoard(),
-            boardColors: data.boardColors || createEmptyColorBoard(),
-            currentPiece: data.currentPiece || null,
-            position: data.position || { x: 0, y: 0 },
-            score: data.score || 0,
-            lines: data.lines || 0,
-            level: data.level || 1,
-            gameOver: data.gameOver || false,
-          })
-        }
-      },
-      (err) => {
-        console.error("[v0] Error listening to opponent state:", err)
-      },
-    )
-
-    return () => unsubscribe()
-  }, [matchId, opponentId])
-
-  const checkCollision = useCallback(
-    (piece: Tetromino, pos: Position): boolean => {
-      for (let y = 0; y < piece.shape.length; y++) {
-        for (let x = 0; x < piece.shape[y].length; x++) {
-          if (piece.shape[y][x]) {
-            const newX = pos.x + x
-            const newY = pos.y + y
-            if (newX < 0 || newX >= BOARD_WIDTH || newY >= BOARD_HEIGHT || (newY >= 0 && board[newY][newX])) {
-              return true
-            }
-          }
-        }
-      }
-      return false
-    },
-    [board],
-  )
-
-  const mergePiece = useCallback(
-    (pos?: Position) => {
-      const actualPos = pos || position
-      const newBoard = board.map((row) => [...row])
-      const newColors = boardColors.current.map((row) => [...row])
-
-      for (let y = 0; y < currentPiece.shape.length; y++) {
-        for (let x = 0; x < currentPiece.shape[y].length; x++) {
-          if (currentPiece.shape[y][x]) {
-            const boardY = actualPos.y + y
-            const boardX = actualPos.x + x
-            if (boardY >= 0) {
-              newBoard[boardY][boardX] = 1
-              newColors[boardY][boardX] = currentPiece.color
-            }
-          }
-        }
-      }
-
-      boardColors.current = newColors
-      setBoard(newBoard)
-    },
-    [board, currentPiece, position],
-  )
-
-  const clearLines = useCallback(() => {
-    const linesToClear: number[] = []
-    board.forEach((row, index) => {
-      if (row.every((cell) => cell === 1)) {
-        linesToClear.push(index)
+    let onlineCount = 0
+    snapshot.forEach((childSnapshot) => {
+      const status = childSnapshot.val()
+      if (status.state === "online") {
+        onlineCount++
       }
     })
 
-    if (linesToClear.length > 0) {
-      setIsClearing(true)
-      setClearingLines(linesToClear)
-      playLineClearSound()
+    callback(onlineCount)
+  })
 
-      setTimeout(() => {
-        const newBoard = board.filter((_, index) => !linesToClear.includes(index))
-        const newColors = boardColors.current.filter((_, index) => !linesToClear.includes(index))
+  return unsubscribe
+}
 
-        while (newBoard.length < BOARD_HEIGHT) {
-          newBoard.unshift(Array(BOARD_WIDTH).fill(0))
-          newColors.unshift(Array(BOARD_WIDTH).fill(""))
-        }
+export async function getBattleRankLeaderboard(limitCount = 20): Promise<LeaderboardEntry[]> {
+  try {
+    const q = query(collection(db, "users"), orderBy("battlePoints", "desc"), limit(limitCount))
 
-        boardColors.current = newColors
-        setBoard(newBoard)
-        setLines((prev) => prev + linesToClear.length)
-        setScore((prev) => prev + linesToClear.length * 100 * level)
-        setLevel(Math.floor((lines + linesToClear.length) / 10) + 1)
-        setClearingLines([])
-        setIsClearing(false)
-      }, 300)
-    }
-  }, [board, level, lines, playLineClearSound])
+    const querySnapshot = await getDocs(q)
+    const scores: LeaderboardEntry[] = []
 
-  const holdCurrentPiece = useCallback(() => {
-    if (gameOver || !canHold || isClearing) return
-    setInputs((prev) => prev + 1)
+    querySnapshot.forEach((docSnap) => {
+      const data = docSnap.data() as UserProfile
+      scores.push({
+        id: docSnap.id,
+        userId: data.userId,
+        userName: data.userName,
+        bestScore: data.bestScore,
+        totalScore: data.totalScore,
+        lines: data.totalLines,
+        totalGames: data.totalGames,
+        totalXP: data.totalXP,
+        profilePictureURL: data.profilePictureURL,
+        date: data.updatedAt,
+      })
+    })
 
-    if (holdPiece === null) {
-      setHoldPiece(currentPiece)
-      const newPiece = nextQueue[0]
-      setNextQueue((prev) => [...prev.slice(1), getRandomTetromino()])
-      setCurrentPiece(newPiece)
-      setPosition({ x: 3, y: 0 })
-      setPieces((prev) => prev + 1)
-    } else {
-      const temp = currentPiece
-      setCurrentPiece(holdPiece)
-      setHoldPiece(temp)
-      setPosition({ x: 3, y: 0 })
-    }
-    setCanHold(false)
-  }, [currentPiece, holdPiece, nextQueue, canHold, gameOver, isClearing])
+    return scores
+  } catch (error) {
+    console.error("[v0] Error fetching battle rank leaderboard:", error)
+    return []
+  }
+}
 
-  const rotatePiece = useCallback(() => {
-    if (gameOver || isClearing) return
-    setInputs((prev) => prev + 1)
-    const rotated = currentPiece.shape[0].map((_, i) => currentPiece.shape.map((row) => row[i]).reverse())
-    const rotatedPiece = { ...currentPiece, shape: rotated }
-    if (!checkCollision(rotatedPiece, position)) {
-      setCurrentPiece(rotatedPiece)
-    }
-  }, [currentPiece, position, checkCollision, gameOver, isClearing])
+export function calculateBattlePointsChange(
+  winner: {
+    battlePoints: number
+    score: number
+    lines: number
+    timeAlive: number
+  },
+  loser: {
+    battlePoints: number
+    score: number
+    lines: number
+    timeAlive: number
+  },
+): { winnerChange: number; loserChange: number } {
+  // Base K-factor (maximum points that can be gained/lost)
+  const K = 32
 
-  const moveDown = useCallback(() => {
-    if (gameOver || isClearing) return
-    const newPos = { x: position.x, y: position.y + 1 }
+  // Calculate expected win probability using ELO formula
+  const expectedWinner = 1 / (1 + Math.pow(10, (loser.battlePoints - winner.battlePoints) / 400))
+  const expectedLoser = 1 - expectedWinner
 
-    if (!checkCollision(currentPiece, newPos)) {
-      setPosition(newPos)
-    } else {
-      mergePiece()
-      clearLines()
+  // Base points change
+  let winnerChange = Math.round(K * (1 - expectedWinner))
+  let loserChange = Math.round(K * (0 - expectedLoser))
 
-      const newPiece = nextQueue[0]
-      setNextQueue((prev) => [...prev.slice(1), getRandomTetromino()])
-      const startPos = { x: 3, y: 0 }
+  // Performance bonus for winner (based on how well they played)
+  const performanceBonus = Math.min(10, Math.floor((winner.score - loser.score) / 1000))
+  winnerChange += performanceBonus
 
-      if (checkCollision(newPiece, startPos)) {
-        setGameOver(true)
-        playGameOverSound()
-      } else {
-        setCurrentPiece(newPiece)
-        setPosition(startPos)
-        setPieces((prev) => prev + 1)
-        setCanHold(true)
-      }
-    }
-  }, [
-    position,
-    currentPiece,
-    nextQueue,
-    checkCollision,
-    mergePiece,
-    clearLines,
-    gameOver,
-    isClearing,
-    playGameOverSound,
-  ])
+  // Reduce loss if loser performed well (lasted long, scored points)
+  const loserPerformance = Math.min(5, Math.floor(loser.timeAlive / 30)) // 1 point per 30 seconds
+  loserChange += loserPerformance // Make loss less severe
 
-  const moveLeft = useCallback(() => {
-    if (gameOver || isClearing) return
-    setInputs((prev) => prev + 1)
-    const newPos = { x: position.x - 1, y: position.y }
-    if (!checkCollision(currentPiece, newPos)) {
-      setPosition(newPos)
-    }
-  }, [position, currentPiece, checkCollision, gameOver, isClearing])
+  // Ensure minimum changes
+  winnerChange = Math.max(10, winnerChange)
+  loserChange = Math.max(-25, loserChange)
 
-  const moveRight = useCallback(() => {
-    if (gameOver || isClearing) return
-    setInputs((prev) => prev + 1)
-    const newPos = { x: position.x + 1, y: position.y }
-    if (!checkCollision(currentPiece, newPos)) {
-      setPosition(newPos)
-    }
-  }, [position, currentPiece, checkCollision, gameOver, isClearing])
+  return { winnerChange, loserChange }
+}
 
-  const hardDrop = useCallback(() => {
-    if (gameOver || isClearing) return
-    setInputs((prev) => prev + 1)
+export async function updateBattleResult(
+  winnerId: string,
+  loserId: string,
+  battleData: {
+    winnerScore: number
+    winnerLines: number
+    winnerTime: number
+    loserScore: number
+    loserLines: number
+    loserTime: number
+  },
+): Promise<void> {
+  try {
+    const winnerRef = doc(db, "users", winnerId)
+    const loserRef = doc(db, "users", loserId)
 
-    let newY = position.y
-    while (!checkCollision(currentPiece, { x: position.x, y: newY + 1 })) {
-      newY++
+    const [winnerDoc, loserDoc] = await Promise.all([getDoc(winnerRef), getDoc(loserRef)])
+
+    if (!winnerDoc.exists() || !loserDoc.exists()) {
+      throw new Error("User profiles not found")
     }
 
-    const dropPosition = { x: position.x, y: newY }
-    mergePiece(dropPosition)
-    clearLines()
+    const winnerData = winnerDoc.data() as UserProfile
+    const loserData = loserDoc.data() as UserProfile
 
-    const newPiece = nextQueue[0]
-    setNextQueue((prev) => [...prev.slice(1), getRandomTetromino()])
-    const startPos = { x: 3, y: 0 }
-
-    if (checkCollision(newPiece, startPos)) {
-      setGameOver(true)
-      playGameOverSound()
-    } else {
-      setCurrentPiece(newPiece)
-      setPosition(startPos)
-      setPieces((prev) => prev + 1)
-      setCanHold(true)
-    }
-  }, [
-    position,
-    currentPiece,
-    nextQueue,
-    checkCollision,
-    mergePiece,
-    clearLines,
-    gameOver,
-    isClearing,
-    playGameOverSound,
-  ])
-
-  useEffect(() => {
-    if (gameOver) return
-    const interval = setInterval(() => {
-      setElapsedTime(Math.floor((Date.now() - startTime) / 1000))
-    }, 1000)
-    return () => clearInterval(interval)
-  }, [startTime, gameOver])
-
-  useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      if (gameOver) return
-      switch (e.key) {
-        case "ArrowLeft":
-          e.preventDefault()
-          moveLeft()
-          break
-        case "ArrowRight":
-          e.preventDefault()
-          moveRight()
-          break
-        case "ArrowDown":
-          e.preventDefault()
-          moveDown()
-          break
-        case "ArrowUp":
-        case " ":
-          e.preventDefault()
-          rotatePiece()
-          break
-        case "c":
-        case "C":
-        case "Shift":
-          e.preventDefault()
-          holdCurrentPiece()
-          break
-        case "Enter":
-          e.preventDefault()
-          hardDrop()
-          break
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyPress)
-    return () => window.removeEventListener("keydown", handleKeyPress)
-  }, [moveLeft, moveRight, moveDown, rotatePiece, hardDrop, holdCurrentPiece, gameOver])
-
-  useEffect(() => {
-    if (gameOver || isClearing) return
-    const speed = Math.max(100, 1000 - (level - 1) * 100)
-    const interval = setInterval(moveDown, speed)
-    return () => clearInterval(interval)
-  }, [moveDown, level, gameOver, isClearing])
-
-  const renderPreview = (piece: Tetromino | null, size = 20) => {
-    if (!piece) return null
-    return (
-      <div className="relative" style={{ width: size * 4, height: size * 4 }}>
-        {piece.shape.map((row, y) =>
-          row.map((cell, x) =>
-            cell ? (
-              <div
-                key={`${y}-${x}`}
-                className="absolute"
-                style={{
-                  width: `${size}px`,
-                  height: `${size}px`,
-                  backgroundColor: piece.color,
-                  left: `${x * size}px`,
-                  top: `${y * size}px`,
-                  border: "2px solid rgba(0,0,0,0.3)",
-                }}
-              />
-            ) : null,
-          ),
-        )}
-      </div>
+    // Calculate points change
+    const { winnerChange, loserChange } = calculateBattlePointsChange(
+      {
+        battlePoints: winnerData.battlePoints || 1000,
+        score: battleData.winnerScore,
+        lines: battleData.winnerLines,
+        timeAlive: battleData.winnerTime,
+      },
+      {
+        battlePoints: loserData.battlePoints || 1000,
+        score: battleData.loserScore,
+        lines: battleData.loserLines,
+        timeAlive: battleData.loserTime,
+      },
     )
-  }
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins}:${secs.toString().padStart(2, "0")}`
-  }
-
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-
-    const ctx = canvas.getContext("2d")
-    if (!ctx) return
-
-    const render = () => {
-      ctx.fillStyle = "#000000"
-      ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.1)"
-      ctx.lineWidth = 1
-      for (let y = 0; y <= BOARD_HEIGHT; y++) {
-        ctx.beginPath()
-        ctx.moveTo(0, y * BLOCK_SIZE)
-        ctx.lineTo(BOARD_WIDTH * BLOCK_SIZE, y * BLOCK_SIZE)
-        ctx.stroke()
-      }
-      for (let x = 0; x <= BOARD_WIDTH; x++) {
-        ctx.beginPath()
-        ctx.moveTo(x * BLOCK_SIZE, 0)
-        ctx.lineTo(x * BLOCK_SIZE, BOARD_HEIGHT * BLOCK_SIZE)
-        ctx.stroke()
-      }
-
-      for (let y = 0; y < BOARD_HEIGHT; y++) {
-        for (let x = 0; x < BOARD_WIDTH; x++) {
-          if (board[y][x]) {
-            const color = boardColors.current[y][x] || "#666666"
-            ctx.fillStyle = color
-            ctx.fillRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
-            ctx.strokeStyle = "rgba(0, 0, 0, 0.3)"
-            ctx.lineWidth = 2
-            ctx.strokeRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
-          }
-        }
-      }
-
-      if (!gameOver && !isClearing) {
-        let ghostY = position.y
-        while (!checkCollision(currentPiece, { x: position.x, y: ghostY + 1 })) {
-          ghostY++
-        }
-
-        for (let y = 0; y < currentPiece.shape.length; y++) {
-          for (let x = 0; x < currentPiece.shape[y].length; x++) {
-            if (currentPiece.shape[y][x]) {
-              const boardX = position.x + x
-              const boardY = ghostY + y
-              if (boardY >= 0) {
-                ctx.fillStyle = "rgba(255, 255, 255, 0.1)"
-                ctx.fillRect(boardX * BLOCK_SIZE, boardY * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
-              }
-            }
-          }
-        }
-      }
-
-      if (!gameOver && !isClearing) {
-        for (let y = 0; y < currentPiece.shape.length; y++) {
-          for (let x = 0; x < currentPiece.shape[y].length; x++) {
-            if (currentPiece.shape[y][x]) {
-              const boardX = position.x + x
-              const boardY = position.y + y
-              if (boardY >= 0) {
-                ctx.fillStyle = currentPiece.color
-                ctx.fillRect(boardX * BLOCK_SIZE, boardY * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
-                ctx.strokeStyle = "rgba(0, 0, 0, 0.3)"
-                ctx.lineWidth = 2
-                ctx.strokeRect(boardX * BLOCK_SIZE, boardY * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
-              }
-            }
-          }
-        }
-      }
-
-      animationFrameRef.current = requestAnimationFrame(render)
-    }
-
-    render()
-
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current)
-      }
-    }
-  }, [board, currentPiece, position, gameOver, isClearing, checkCollision])
-
-  useEffect(() => {
-    const canvas = opponentCanvasRef.current
-    if (!canvas) return
-
-    const ctx = canvas.getContext("2d")
-    if (!ctx) return
-
-    const render = () => {
-      ctx.fillStyle = "#000000"
-      ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-      for (let y = 0; y < BOARD_HEIGHT; y++) {
-        for (let x = 0; x < BOARD_WIDTH; x++) {
-          if (opponentState.board[y][x]) {
-            const color = opponentState.boardColors[y][x] || "#666666"
-            ctx.fillStyle = color
-            ctx.fillRect(x * OPPONENT_BLOCK_SIZE, y * OPPONENT_BLOCK_SIZE, OPPONENT_BLOCK_SIZE, OPPONENT_BLOCK_SIZE)
-          }
-        }
-      }
-
-      if (opponentState.currentPiece && !opponentState.gameOver) {
-        for (let y = 0; y < opponentState.currentPiece.shape.length; y++) {
-          for (let x = 0; x < opponentState.currentPiece.shape[y].length; x++) {
-            if (opponentState.currentPiece.shape[y][x]) {
-              const boardX = opponentState.position.x + x
-              const boardY = opponentState.position.y + y
-              if (boardY >= 0) {
-                ctx.fillStyle = opponentState.currentPiece.color
-                ctx.fillRect(
-                  boardX * OPPONENT_BLOCK_SIZE,
-                  boardY * OPPONENT_BLOCK_SIZE,
-                  OPPONENT_BLOCK_SIZE,
-                  OPPONENT_BLOCK_SIZE,
-                )
-              }
-            }
-          }
-        }
-      }
-
-      requestAnimationFrame(render)
-    }
-
-    render()
-  }, [opponentState])
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-black text-white flex items-center justify-center p-4">
-        <Card className="bg-zinc-900 border-zinc-700 p-8 sm:p-12 text-center max-w-md">
-          <div className="text-4xl sm:text-6xl mb-4 sm:mb-6 animate-pulse">⏳</div>
-          <h2 className="text-2xl sm:text-3xl font-bold mb-2 sm:mb-4">Ачааллаж байна...</h2>
-        </Card>
-      </div>
+    // Update winner
+    await setDoc(
+      winnerRef,
+      {
+        battlePoints: (winnerData.battlePoints || 1000) + winnerChange,
+        battleWins: (winnerData.battleWins || 0) + 1,
+        updatedAt: new Date(),
+      },
+      { merge: true },
     )
-  }
 
-  if (error) {
-    return (
-      <div className="min-h-screen bg-black text-white flex items-center justify-center p-4">
-        <Card className="bg-zinc-900 border-zinc-700 p-6 sm:p-12 text-center max-w-md">
-          <div className="text-4xl sm:text-6xl mb-4 sm:mb-6">❌</div>
-          <h2 className="text-2xl sm:text-3xl font-bold mb-3 sm:mb-4 text-red-500">Алдаа гарлаа</h2>
-          <p className="text-sm sm:text-base text-zinc-400 mb-4 sm:mb-6">{error}</p>
-          <div className="text-xs sm:text-sm text-zinc-500 mb-4 sm:mb-6 text-left bg-zinc-800 p-3 sm:p-4 rounded">
-            <p className="font-bold mb-2">Firebase тохиргоо:</p>
-            <p className="mb-2">1. Firebase project үүсгэх (firebase.google.com)</p>
-            <p className="mb-2">2. Vercel Project Settings-ээс Environment Variables нэмэх:</p>
-            <ul className="list-disc list-inside ml-2 sm:ml-4 mt-2 space-y-1">
-              <li className="break-all">NEXT_PUBLIC_FIREBASE_API_KEY</li>
-              <li className="break-all">NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN</li>
-              <li className="break-all">NEXT_PUBLIC_FIREBASE_PROJECT_ID</li>
-              <li className="break-all">NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET</li>
-              <li className="break-all">NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID</li>
-              <li className="break-all">NEXT_PUBLIC_FIREBASE_APP_ID</li>
-            </ul>
-          </div>
-          <Button
-            onClick={() => router.push("/")}
-            variant="outline"
-            className="w-full text-muted-foreground border-zinc-700"
-          >
-            Буцах
-          </Button>
-        </Card>
-      </div>
+    // Update loser
+    await setDoc(
+      loserRef,
+      {
+        battlePoints: Math.max(0, (loserData.battlePoints || 1000) + loserChange), // Don't go below 0
+        battleLosses: (loserData.battleLosses || 0) + 1,
+        updatedAt: new Date(),
+      },
+      { merge: true },
     )
+  } catch (error) {
+    console.error("[v0] Error updating battle result:", error)
+    throw error
   }
+}
 
-  if (matchmaking) {
-    return (
-      <div className="min-h-screen bg-black text-white flex items-center justify-center p-4">
-        <Card className="bg-zinc-900 border-zinc-700 p-8 sm:p-12 text-center max-w-md">
-          <div className="text-4xl sm:text-6xl mb-4 sm:mb-6 animate-bounce">⚔️</div>
-          <h2 className="text-2xl sm:text-3xl font-bold mb-3 sm:mb-4">Өрсөлдөгч хайж байна...</h2>
-          {myRank && myProfile && (
-            <div className="mb-4 p-4 bg-zinc-800 rounded-lg">
-              <div className="flex items-center justify-center gap-2 mb-2">
-                <span className="text-xl font-bold" style={{ color: myRank.color }}>
-                  {myRank.name}
-                </span>
-              </div>
-              <div className="text-sm text-zinc-400">{myProfile.battlePoints} Battle Points</div>
-              <div className="text-xs text-zinc-500 mt-1">
-                {myProfile.battleWins}W - {myProfile.battleLosses}L
-              </div>
-            </div>
-          )}
-          <div className="flex justify-center gap-2 mb-4 sm:mb-6">
-            <div className="w-3 h-3 bg-red-600 rounded-full animate-pulse" />
-            <div className="w-3 h-3 bg-red-800 rounded-full animate-pulse delay-200" />
-            <div className="w-3 h-3 bg-red-400 rounded-full animate-pulse delay-200" />
-          </div>
-          <Button
-            onClick={() => router.push("/")}
-            variant="outline"
-            className="w-full text-muted-foreground border-zinc-700"
-          >
-            Цуцлах
-          </Button>
-        </Card>
-      </div>
+export async function searchUsers(searchTerm: string): Promise<UserProfile[]> {
+  try {
+    if (!searchTerm.trim()) return []
+
+    const usersRef = collection(db, "users")
+    const querySnapshot = await getDocs(usersRef)
+
+    const users: UserProfile[] = []
+    querySnapshot.forEach((doc) => {
+      const data = doc.data() as UserProfile
+      const userName = data.userName?.toLowerCase() || ""
+      const search = searchTerm.toLowerCase()
+
+      if (userName.includes(search)) {
+        users.push(data)
+      }
+    })
+
+    return users.slice(0, 20) // Limit to 20 results
+  } catch (error) {
+    console.error("[v0] Error searching users:", error)
+    return []
+  }
+}
+
+export async function deleteFriend(userId: string, friendId: string): Promise<void> {
+  try {
+    // Find and delete the friend request document
+    const q1 = query(
+      collection(db, "friendRequests"),
+      where("fromId", "==", userId),
+      where("toId", "==", friendId),
+      where("status", "==", "accepted"),
     )
+    const q2 = query(
+      collection(db, "friendRequests"),
+      where("fromId", "==", friendId),
+      where("toId", "==", userId),
+      where("status", "==", "accepted"),
+    )
+
+    const [snapshot1, snapshot2] = await Promise.all([getDocs(q1), getDocs(q2)])
+
+    const deletePromises: Promise<void>[] = []
+    snapshot1.forEach((doc) => {
+      deletePromises.push(deleteDoc(doc.ref))
+    })
+    snapshot2.forEach((doc) => {
+      deletePromises.push(deleteDoc(doc.ref))
+    })
+
+    await Promise.all(deletePromises)
+  } catch (error) {
+    console.error("Error deleting friend:", error)
+    throw error
   }
-
-  return (
-    <div className="min-h-screen flex items-start sm:items-center justify-center px-2 py-2 sm:p-4 lg:p-8 bg-black fixed inset-0 overflow-hidden">
-      <div className="fixed top-2 right-2 sm:top-4 sm:right-4 z-50">
-        <Card className="bg-zinc-900/95 border-zinc-700 p-1.5 sm:p-2">
-          <div className="flex items-center gap-1 mb-1">
-            <div className="text-[10px] sm:text-xs font-bold text-white truncate max-w-[80px]">{opponentName}</div>
-            {opponentRank && (
-              <div className="flex items-center gap-0.5">
-                <span className="text-[9px] font-bold" style={{ color: opponentRank.color }}>
-                  {opponentRank.name.split(" ")[0]}
-                </span>
-              </div>
-            )}
-          </div>
-          <canvas
-            ref={opponentCanvasRef}
-            width={BOARD_WIDTH * OPPONENT_BLOCK_SIZE}
-            height={BOARD_HEIGHT * OPPONENT_BLOCK_SIZE}
-            className="border border-zinc-800 rounded w-20 sm:w-24 md:w-28 h-auto"
-          />
-          <div className="text-[9px] sm:text-xs text-zinc-400 mt-1">
-            {opponentState.score} | {opponentState.lines}L
-          </div>
-          {opponentState.gameOver && <div className="text-[9px] sm:text-xs text-red-500 font-bold mt-1">GAME OVER</div>}
-        </Card>
-      </div>
-
-      <div className="flex flex-row gap-1 sm:gap-2 lg:gap-4 items-start justify-center w-full max-w-7xl">
-        <div className="flex flex-col gap-1 sm:gap-2 lg:gap-4 w-16 sm:w-24 md:w-32 lg:w-52 flex-shrink-0">
-          <Card className="p-1 sm:p-2 lg:p-4 bg-zinc-900 border-zinc-600">
-            <h2 className="text-[10px] sm:text-xs lg:text-sm font-bold mb-1 sm:mb-2 text-white">Hold</h2>
-            <div className="bg-black rounded border border-zinc-800 p-1 sm:p-2 flex items-center justify-center h-14 sm:h-16 lg:h-24">
-              {renderPreview(holdPiece, 10)}
-            </div>
-          </Card>
-
-          <Card className="p-1 sm:p-2 bg-zinc-900 border-zinc-800 text-white space-y-0.5 sm:space-y-1">
-            {myRank && myProfile && (
-              <div className="mb-1 pb-1 border-b border-zinc-700">
-                <div className="text-[9px] font-bold truncate" style={{ color: myRank.color }}>
-                  {myRank.name}
-                </div>
-                <div className="text-[8px] text-zinc-400">{myProfile.battlePoints} BP</div>
-              </div>
-            )}
-            <div className="flex justify-between items-baseline">
-              <span className="text-[9px] sm:text-xs text-zinc-400">Score</span>
-              <span className="text-[11px] sm:text-sm font-bold">{score}</span>
-            </div>
-            <div className="flex justify-between items-baseline">
-              <span className="text-[9px] sm:text-xs text-zinc-400">Lines</span>
-              <span className="text-[11px] sm:text-sm font-bold">{lines}</span>
-            </div>
-            <div className="flex justify-between items-baseline">
-              <span className="text-[9px] sm:text-xs text-zinc-400">Time</span>
-              <span className="text-[11px] sm:text-sm font-bold">{formatTime(elapsedTime)}</span>
-            </div>
-          </Card>
-        </div>
-
-        <div className="flex flex-col gap-1 sm:gap-2 flex-shrink-0">
-          <canvas
-            ref={canvasRef}
-            width={BOARD_WIDTH * BLOCK_SIZE}
-            height={BOARD_HEIGHT * BLOCK_SIZE}
-            className="border-2 border-zinc-800 rounded w-[180px] sm:w-[240px] md:w-[300px] lg:w-[360px] xl:w-[420px] h-auto"
-            style={{ imageRendering: "pixelated", touchAction: "none" }}
-          />
-
-          {gameOver && battleResult && battlePointsChange !== null && (
-            <Card className="p-2 sm:p-4 bg-zinc-900 border-zinc-700 text-center">
-              <div className="text-2xl sm:text-4xl mb-2">{battleResult === "win" ? "🏆" : "💀"}</div>
-              <h3 className="text-lg sm:text-xl font-bold mb-2">{battleResult === "win" ? "Хожлоо!" : "Хожигдлоо!"}</h3>
-              <div
-                className={`text-xl sm:text-2xl font-bold mb-2 ${battlePointsChange > 0 ? "text-green-500" : "text-red-500"}`}
-              >
-                {battlePointsChange > 0 ? "+" : ""}
-                {battlePointsChange} BP
-              </div>
-              {myRank && myProfile && (
-                <div className="text-sm text-zinc-400">
-                  <div style={{ color: myRank.color }}>{myRank.name}</div>
-                  <div>{myProfile.battlePoints} Battle Points</div>
-                </div>
-              )}
-              <Button onClick={() => router.push("/")} className="mt-4 w-full">
-                Буцах
-              </Button>
-            </Card>
-          )}
-
-          <div className="flex flex-col justify-center items-center gap-2 mt-2 md:hidden">
-            <div className="flex justify-center gap-1.5 sm:gap-2">
-              <Button onClick={moveLeft} className="w-12 h-12 sm:w-14 sm:h-14 text-xl sm:text-2xl bg-zinc-700 p-0">
-                ◀
-              </Button>
-              <Button onClick={moveRight} className="w-12 h-12 sm:w-14 sm:h-14 text-xl sm:text-2xl bg-zinc-700 p-0">
-                ▶
-              </Button>
-              <Button onClick={moveDown} className="w-12 h-12 sm:w-14 sm:h-14 text-xl sm:text-2xl bg-zinc-700 p-0">
-                ▼
-              </Button>
-              <Button onClick={rotatePiece} className="w-12 h-12 sm:w-14 sm:h-14 text-xl sm:text-2xl bg-blue-700 p-0">
-                ⟳
-              </Button>
-            </div>
-            <div className="flex justify-center gap-1.5 sm:gap-2">
-              <Button
-                onClick={holdCurrentPiece}
-                className="w-12 h-12 sm:w-14 sm:h-14 text-xl sm:text-2xl bg-yellow-700 p-0"
-              >
-                H
-              </Button>
-              <Button onClick={hardDrop} className="w-12 h-12 sm:w-14 sm:h-14 text-xl sm:text-2xl bg-red-700 p-0">
-                ⇩
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-1 sm:gap-2 w-16 sm:w-24 md:w-32 lg:w-52 flex-shrink-0">
-          <Card className="p-1 sm:p-2 bg-zinc-900 border-zinc-800">
-            <h2 className="text-[10px] sm:text-xs lg:text-sm font-bold mb-1 sm:mb-2 text-white">Next</h2>
-            <div className="space-y-1 sm:space-y-2">
-              {nextQueue.map((piece, index) => (
-                <div
-                  key={index}
-                  className="bg-black rounded border border-zinc-800 p-0.5 sm:p-1 flex items-center justify-center h-12 sm:h-14"
-                >
-                  {renderPreview(piece, 8)}
-                </div>
-              ))}
-            </div>
-          </Card>
-        </div>
-      </div>
-    </div>
-  )
 }
