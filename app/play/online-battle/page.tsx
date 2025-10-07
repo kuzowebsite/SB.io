@@ -128,7 +128,7 @@ function generateQueue(count: number): Tetromino[] {
 
 export default function OnlineBattlePage() {
   const router = useRouter()
-  const { user } = useAuth()
+  const { user, loading } = useAuth()
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const opponentCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const animationFrameRef = useRef<number | null>(null)
@@ -139,8 +139,8 @@ export default function OnlineBattlePage() {
   const [matchId, setMatchId] = useState<string | null>(null)
   const [opponentId, setOpponentId] = useState<string | null>(null)
   const [opponentName, setOpponentName] = useState<string>("")
+  const [error, setError] = useState<string | null>(null)
 
-  // My game state
   const [board, setBoard] = useState<number[][]>(createEmptyBoard())
   const boardColors = useRef<string[][]>(createEmptyColorBoard())
   const [currentPiece, setCurrentPiece] = useState<Tetromino>(getRandomTetromino())
@@ -159,7 +159,6 @@ export default function OnlineBattlePage() {
   const [isClearing, setIsClearing] = useState(false)
   const [gameOver, setGameOver] = useState(false)
 
-  // Opponent game state
   const [opponentState, setOpponentState] = useState<GameState>({
     board: createEmptyBoard(),
     boardColors: createEmptyColorBoard(),
@@ -213,51 +212,56 @@ export default function OnlineBattlePage() {
   }, [])
 
   useEffect(() => {
-    if (!user || !matchmaking) return
+    if (!user || !matchmaking || loading) return
 
     let matchmakingDoc: string | null = null
     let unsubscribe: (() => void) | null = null
 
     const findMatch = async () => {
-      const q = query(collection(db, "matchmaking"), where("status", "==", "waiting"))
-      const snapshot = await getDocs(q)
-      const availableMatches = snapshot.docs.filter((doc) => doc.data().playerId !== user.uid)
+      try {
+        const q = query(collection(db, "matchmaking"), where("status", "==", "waiting"))
+        const snapshot = await getDocs(q)
+        const availableMatches = snapshot.docs.filter((doc) => doc.data().playerId !== user.uid)
 
-      if (availableMatches.length > 0) {
-        const waitingMatch = availableMatches[0]
-        const matchData = waitingMatch.data()
+        if (availableMatches.length > 0) {
+          const waitingMatch = availableMatches[0]
+          const matchData = waitingMatch.data()
 
-        await updateDoc(doc(db, "matchmaking", waitingMatch.id), {
-          player2Id: user.uid,
-          player2Name: user.displayName || user.email || "Player 2",
-          status: "matched",
-        })
+          await updateDoc(doc(db, "matchmaking", waitingMatch.id), {
+            player2Id: user.uid,
+            player2Name: user.displayName || user.email || "Player 2",
+            status: "matched",
+          })
 
-        setMatchId(waitingMatch.id)
-        setOpponentId(matchData.playerId)
-        setOpponentName(matchData.playerName)
-        setMatchmaking(false)
-      } else {
-        const docRef = await addDoc(collection(db, "matchmaking"), {
-          playerId: user.uid,
-          playerName: user.displayName || user.email || "Player 1",
-          player2Id: null,
-          player2Name: null,
-          status: "waiting",
-          createdAt: serverTimestamp(),
-        })
+          setMatchId(waitingMatch.id)
+          setOpponentId(matchData.playerId)
+          setOpponentName(matchData.playerName)
+          setMatchmaking(false)
+        } else {
+          const docRef = await addDoc(collection(db, "matchmaking"), {
+            playerId: user.uid,
+            playerName: user.displayName || user.email || "Player 1",
+            player2Id: null,
+            player2Name: null,
+            status: "waiting",
+            createdAt: serverTimestamp(),
+          })
 
-        matchmakingDoc = docRef.id
+          matchmakingDoc = docRef.id
 
-        unsubscribe = onSnapshot(doc(db, "matchmaking", docRef.id), (doc) => {
-          const data = doc.data()
-          if (data && data.status === "matched" && data.player2Id) {
-            setMatchId(docRef.id)
-            setOpponentId(data.player2Id)
-            setOpponentName(data.player2Name)
-            setMatchmaking(false)
-          }
-        })
+          unsubscribe = onSnapshot(doc(db, "matchmaking", docRef.id), (doc) => {
+            const data = doc.data()
+            if (data && data.status === "matched" && data.player2Id) {
+              setMatchId(docRef.id)
+              setOpponentId(data.player2Id)
+              setOpponentName(data.player2Name)
+              setMatchmaking(false)
+            }
+          })
+        }
+      } catch (err) {
+        console.error("Matchmaking error:", err)
+        setError("Firebase холболтын алдаа. Та Firebase тохиргоогоо шалгана уу.")
       }
     }
 
@@ -269,7 +273,7 @@ export default function OnlineBattlePage() {
         deleteDoc(doc(db, "matchmaking", matchmakingDoc)).catch(console.error)
       }
     }
-  }, [user, matchmaking])
+  }, [user, matchmaking, loading])
 
   useEffect(() => {
     if (!matchId || !user || gameOver) return
@@ -286,27 +290,35 @@ export default function OnlineBattlePage() {
       updatedAt: Date.now(),
     }
 
-    setDoc(doc(db, "battleGames", `${matchId}_${user.uid}`), gameStateData, { merge: true }).catch(console.error)
+    setDoc(doc(db, "battleGames", `${matchId}_${user.uid}`), gameStateData, { merge: true }).catch((err) => {
+      console.error("Error syncing game state:", err)
+    })
   }, [matchId, user, board, currentPiece, position, score, lines, level, gameOver])
 
   useEffect(() => {
     if (!matchId || !opponentId) return
 
-    const unsubscribe = onSnapshot(doc(db, "battleGames", `${matchId}_${opponentId}`), (doc) => {
-      const data = doc.data()
-      if (data) {
-        setOpponentState({
-          board: data.board || createEmptyBoard(),
-          boardColors: data.boardColors || createEmptyColorBoard(),
-          currentPiece: data.currentPiece || null,
-          position: data.position || { x: 0, y: 0 },
-          score: data.score || 0,
-          lines: data.lines || 0,
-          level: data.level || 1,
-          gameOver: data.gameOver || false,
-        })
-      }
-    })
+    const unsubscribe = onSnapshot(
+      doc(db, "battleGames", `${matchId}_${opponentId}`),
+      (doc) => {
+        const data = doc.data()
+        if (data) {
+          setOpponentState({
+            board: data.board || createEmptyBoard(),
+            boardColors: data.boardColors || createEmptyColorBoard(),
+            currentPiece: data.currentPiece || null,
+            position: data.position || { x: 0, y: 0 },
+            score: data.score || 0,
+            lines: data.lines || 0,
+            level: data.level || 1,
+            gameOver: data.gameOver || false,
+          })
+        }
+      },
+      (err) => {
+        console.error("Error listening to opponent state:", err)
+      },
+    )
 
     return () => unsubscribe()
   }, [matchId, opponentId])
@@ -605,7 +617,6 @@ export default function OnlineBattlePage() {
       ctx.fillStyle = "#000000"
       ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-      // Draw grid
       ctx.strokeStyle = "rgba(255, 255, 255, 0.1)"
       ctx.lineWidth = 1
       for (let y = 0; y <= BOARD_HEIGHT; y++) {
@@ -621,7 +632,6 @@ export default function OnlineBattlePage() {
         ctx.stroke()
       }
 
-      // Draw board
       for (let y = 0; y < BOARD_HEIGHT; y++) {
         for (let x = 0; x < BOARD_WIDTH; x++) {
           if (board[y][x]) {
@@ -635,7 +645,6 @@ export default function OnlineBattlePage() {
         }
       }
 
-      // Draw ghost piece
       if (!gameOver && !isClearing) {
         let ghostY = position.y
         while (!checkCollision(currentPiece, { x: position.x, y: ghostY + 1 })) {
@@ -656,7 +665,6 @@ export default function OnlineBattlePage() {
         }
       }
 
-      // Draw current piece
       if (!gameOver && !isClearing) {
         for (let y = 0; y < currentPiece.shape.length; y++) {
           for (let x = 0; x < currentPiece.shape[y].length; x++) {
@@ -698,7 +706,6 @@ export default function OnlineBattlePage() {
       ctx.fillStyle = "#000000"
       ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-      // Draw opponent board
       for (let y = 0; y < BOARD_HEIGHT; y++) {
         for (let x = 0; x < BOARD_WIDTH; x++) {
           if (opponentState.board[y][x]) {
@@ -709,7 +716,6 @@ export default function OnlineBattlePage() {
         }
       }
 
-      // Draw opponent current piece
       if (opponentState.currentPiece && !opponentState.gameOver) {
         for (let y = 0; y < opponentState.currentPiece.shape.length; y++) {
           for (let x = 0; x < opponentState.currentPiece.shape[y].length; x++) {
@@ -735,6 +741,45 @@ export default function OnlineBattlePage() {
 
     render()
   }, [opponentState])
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <Card className="bg-zinc-900 border-zinc-700 p-12 text-center">
+          <div className="text-6xl mb-6 animate-pulse">⏳</div>
+          <h2 className="text-3xl font-bold mb-4">Ачааллаж байна...</h2>
+        </Card>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <Card className="bg-zinc-900 border-zinc-700 p-12 text-center max-w-md">
+          <div className="text-6xl mb-6">❌</div>
+          <h2 className="text-3xl font-bold mb-4 text-red-500">Алдаа гарлаа</h2>
+          <p className="text-zinc-400 mb-6">{error}</p>
+          <div className="text-sm text-zinc-500 mb-6 text-left">
+            <p className="font-bold mb-2">Firebase тохиргоо:</p>
+            <p>1. Firebase project үүсгэх</p>
+            <p>2. Environment variables нэмэх:</p>
+            <ul className="list-disc list-inside ml-4 mt-2">
+              <li>NEXT_PUBLIC_FIREBASE_API_KEY</li>
+              <li>NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN</li>
+              <li>NEXT_PUBLIC_FIREBASE_PROJECT_ID</li>
+              <li>NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET</li>
+              <li>NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID</li>
+              <li>NEXT_PUBLIC_FIREBASE_APP_ID</li>
+            </ul>
+          </div>
+          <Button onClick={() => router.push("/")} variant="outline" className="text-muted-foreground border-zinc-700">
+            Буцах
+          </Button>
+        </Card>
+      </div>
+    )
+  }
 
   if (matchmaking) {
     return (
@@ -773,7 +818,6 @@ export default function OnlineBattlePage() {
         </Card>
       </div>
 
-      {/* Game over screen */}
       {gameOver && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <Card className="bg-gradient-to-br from-purple-900 via-blue-900 to-cyan-900 border-4 border-yellow-400 p-6 text-center">
@@ -802,9 +846,7 @@ export default function OnlineBattlePage() {
         </div>
       )}
 
-      {/* Main game layout - same as solo tetris */}
       <div className="flex flex-row gap-0.5 sm:gap-2 lg:gap-4 items-start justify-center w-full max-w-7xl">
-        {/* Left panel - Hold and stats */}
         <div className="flex flex-col gap-1 sm:gap-2 lg:gap-4 w-14 sm:w-32 lg:w-52 flex-shrink-0 translate-x-8 sm:translate-x-0">
           <Card className="w-20 sm:w-24 lg:w-32 p-1 sm:p-2 lg:p-4 bg-zinc-900 border-zinc-600">
             <h2 className="text-[9px] sm:text-xs lg:text-sm font-bold mb-1 sm:mb-2 text-white">Hold</h2>
@@ -829,7 +871,6 @@ export default function OnlineBattlePage() {
           </Card>
         </div>
 
-        {/* Center - Game board */}
         <div className="flex flex-col gap-1 sm:gap-2 flex-shrink-0">
           <canvas
             ref={canvasRef}
@@ -839,7 +880,6 @@ export default function OnlineBattlePage() {
             style={{ imageRendering: "pixelated", touchAction: "none" }}
           />
 
-          {/* Mobile controls */}
           <div className="flex flex-col justify-center items-center gap-2 mt-2 lg:hidden">
             <div className="flex justify-center gap-2">
               <Button onClick={moveLeft} className="w-16 h-16 text-2xl bg-zinc-700">
@@ -866,7 +906,6 @@ export default function OnlineBattlePage() {
           </div>
         </div>
 
-        {/* Right panel - Next pieces */}
         <div className="flex flex-col gap-1 sm:gap-2 w-14 sm:w-32 lg:w-52 flex-shrink-0 -translate-x-14 sm:translate-x-0">
           <Card className="w-20 sm:w-24 lg:w-32 p-1 sm:p-2 bg-zinc-900 border-zinc-800">
             <h2 className="text-[9px] sm:text-xs lg:text-sm font-bold mb-1 sm:mb-2 text-white">Next</h2>
