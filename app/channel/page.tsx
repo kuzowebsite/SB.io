@@ -7,12 +7,20 @@ import { ProtectedRoute } from "@/components/protected-route"
 import { Button } from "@/components/ui/button"
 import {
   getTopScores,
+  getBattleRankLeaderboard,
   getTotalPlayers,
   getTotalGames,
   subscribeToOnlinePlayers,
   type LeaderboardEntry,
 } from "@/lib/game-service"
-import { getRankByScore, RANKS, getLevelFromXP, type Rank } from "@/lib/rank-system"
+import {
+  getRankByScore,
+  RANKS,
+  BATTLE_RANKS,
+  getLevelFromXP,
+  type Rank,
+  type BattleRank,
+} from "@/lib/rank-system"
 import { ArrowLeft, AlertCircle } from "lucide-react"
 
 export default function TetraChannelPage() {
@@ -77,7 +85,8 @@ function HomeTab() {
   const [onlinePlayers, setOnlinePlayers] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [selectedRank, setSelectedRank] = useState<Rank | null>(null)
+  const [rankSystemType, setRankSystemType] = useState<"solo" | "battle">("solo")
+  const [selectedRank, setSelectedRank] = useState<Rank | BattleRank | null>(null)
 
   useEffect(() => {
     Promise.all([getTotalPlayers(), getTotalGames()])
@@ -126,12 +135,34 @@ function HomeTab() {
 
       {/* Rank System Info */}
       <div className="space-y-4">
-        <h3 className="text-2xl font-bold">Цолны систем</h3>
+        <div className="flex items-center justify-between">
+          <h3 className="text-2xl font-bold">Цолууд</h3>
+          <div className="flex gap-2">
+            <Button
+              variant={rankSystemType === "solo" ? "default" : "ghost"}
+              onClick={() => setRankSystemType("solo")}
+              size="sm"
+              className="font-semibold"
+            >
+              Solo Rank
+            </Button>
+            <Button
+              variant={rankSystemType === "battle" ? "default" : "ghost"}
+              onClick={() => setRankSystemType("battle")}
+              size="sm"
+              className="font-semibold"
+            >
+              Battle Rank
+            </Button>
+          </div>
+        </div>
         <p className="text-sm text-muted-foreground">
-          Цол нь таны хамгийн өндөр оноогоор тодорхойлогдоно. Дарж дэлгэрэнгүй мэдээлэл үзнэ үү.
+          {rankSystemType === "solo"
+            ? "Цол нь таны хамгийн өндөр рекорд оноогоор тодорхойлогдоно. Дарж дэлгэрэнгүй мэдээлэл үзнэ үү."
+            : "Battle Rank нь таны өрсөлдөөний оноогоор (ELO систем) тодорхойлогдоно. Дарж дэлгэрэнгүй мэдээлэл үзнэ үү."}
         </p>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-          {RANKS.map((rank) => (
+          {(rankSystemType === "solo" ? RANKS : BATTLE_RANKS).map((rank) => (
             <button
               key={rank.id}
               onClick={() => setSelectedRank(rank)}
@@ -148,12 +179,17 @@ function HomeTab() {
                   {rank.name}
                 </span>
               </div>
-              <div className="text-xs text-muted-foreground">{rank.minScore.toLocaleString()} оноо</div>
+              <div className="text-xs text-muted-foreground">
+                {"minScore" in rank
+                  ? `${rank.minScore.toLocaleString()} оноо`
+                  : `${rank.minPoints.toLocaleString()} points`}
+              </div>
             </button>
           ))}
         </div>
       </div>
 
+      {/* Modal */}
       {selectedRank && (
         <div
           className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
@@ -175,7 +211,9 @@ function HomeTab() {
                   {selectedRank.name}
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  {selectedRank.minScore.toLocaleString()} оноо шаардлагатай
+                  {"minScore" in selectedRank
+                    ? `${selectedRank.minScore.toLocaleString()} оноо шаардлагатай`
+                    : `${selectedRank.minPoints.toLocaleString()} battle points шаардлагатай`}
                 </p>
               </div>
             </div>
@@ -191,6 +229,7 @@ function HomeTab() {
 }
 
 function LeaderboardsTab() {
+  const [leaderboardType, setLeaderboardType] = useState<"solo" | "battle">("solo")
   const [scores, setScores] = useState<LeaderboardEntry[]>([])
   const [filteredScores, setFilteredScores] = useState<LeaderboardEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -198,7 +237,10 @@ function LeaderboardsTab() {
   const [searchTerm, setSearchTerm] = useState("")
 
   useEffect(() => {
-    getTopScores(20)
+    setLoading(true)
+    const fetchFunction = leaderboardType === "solo" ? getTopScores : getBattleRankLeaderboard
+
+    fetchFunction(20)
       .then((data) => {
         setScores(data)
         setFilteredScores(data)
@@ -209,7 +251,7 @@ function LeaderboardsTab() {
         setError("Leaderboard өгөгдөл татахад алдаа гарлаа. Интернэт холболтоо шалгана уу.")
       })
       .finally(() => setLoading(false))
-  }, [])
+  }, [leaderboardType])
 
   useEffect(() => {
     if (!searchTerm) {
@@ -244,9 +286,31 @@ function LeaderboardsTab() {
 
   return (
     <div className="space-y-6">
+      {/* Leaderboard Type Selector */}
+      <div className="flex gap-2 border-b border-border/50 pb-2">
+        <Button
+          variant={leaderboardType === "solo" ? "default" : "ghost"}
+          onClick={() => setLeaderboardType("solo")}
+          className="font-semibold"
+        >
+          Solo Rank
+        </Button>
+        <Button
+          variant={leaderboardType === "battle" ? "default" : "ghost"}
+          onClick={() => setLeaderboardType("battle")}
+          className="font-semibold"
+        >
+          Battle Rank
+        </Button>
+      </div>
+
       <div>
-        <h2 className="text-3xl font-bold">RANK</h2>
-        <p className="text-sm text-muted-foreground mt-1">Нэг тоглолтын хамгийн өндөр оноогоор эрэмблэгдсэн</p>
+        <h2 className="text-3xl font-bold">{leaderboardType === "solo" ? "SOLO RANK" : "BATTLE RANK"}</h2>
+        <p className="text-sm text-muted-foreground mt-1">
+          {leaderboardType === "solo"
+            ? "Нэг тоглолтын хамгийн өндөр оноогоор эрэмблэгдсэн"
+            : "Өрсөлдөөний оноогоор эрэмблэгдсэн (ELO систем)"}
+        </p>
 
         {/* Search Box */}
         <div className="mt-4">
@@ -273,10 +337,10 @@ function LeaderboardsTab() {
             const position = originalIndex !== -1 ? originalIndex + 1 : index + 1
 
             const getElectricIntensity = (pos: number) => {
-              if (pos <= 3) return 1.0 // Very bright for top 3
-              if (pos <= 10) return 0.7 // Medium for 4-10
-              if (pos <= 20) return 0.4 // Subtle for 11-20
-              return 0.2 // Very subtle for 21+
+              if (pos <= 3) return 1.0
+              if (pos <= 10) return 0.7
+              if (pos <= 20) return 0.4
+              return 0.2
             }
 
             const intensity = getElectricIntensity(position)
@@ -310,7 +374,6 @@ function LeaderboardsTab() {
                     </span>
                   </div>
 
-                  {/* Rank Badge / Profile */}
                   <div className="flex-shrink-0">
                     <div
                       className="w-10 h-10 rounded-lg border-2 flex items-center justify-center overflow-hidden"
@@ -354,24 +417,42 @@ function LeaderboardsTab() {
                     </div>
                   </div>
 
-                  {/* Stats */}
                   <div className="flex flex-col sm:flex-row gap-1 sm:gap-6 text-[8px] sm:text-sm">
-                    <div className="text-center">
-                      <div className="text-muted-foreground text-[8px] sm:text-xs">Best Score</div>
-                      <div className="font-mono font-semibold text-primary text-[10px] sm:text-base">
-                        {entry.bestScore.toLocaleString()}
-                      </div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-muted-foreground text-[8px] sm:text-xs">Games</div>
-                      <div className="font-mono font-semibold text-[10px] sm:text-base">{entry.totalGames}</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-muted-foreground text-[8px] sm:text-xs">Lines</div>
-                      <div className="font-mono font-semibold text-[10px] sm:text-base">
-                        {entry.lines.toLocaleString()}
-                      </div>
-                    </div>
+                    {leaderboardType === "solo" ? (
+                      <>
+                        <div className="text-center">
+                          <div className="text-muted-foreground text-[8px] sm:text-xs">Best Score</div>
+                          <div className="font-mono font-semibold text-primary text-[10px] sm:text-base">
+                            {entry.bestScore.toLocaleString()}
+                          </div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-muted-foreground text-[8px] sm:text-xs">Games</div>
+                          <div className="font-mono font-semibold text-[10px] sm:text-base">{entry.totalGames}</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-muted-foreground text-[8px] sm:text-xs">Lines</div>
+                          <div className="font-mono font-semibold text-[10px] sm:text-base">
+                            {entry.lines.toLocaleString()}
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="text-center">
+                          <div className="text-muted-foreground text-[8px] sm:text-xs">Battle Points</div>
+                          <div className="font-mono font-semibold text-primary text-[10px] sm:text-base">1000</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-muted-foreground text-[8px] sm:text-xs">Wins</div>
+                          <div className="font-mono font-semibold text-green-500 text-[10px] sm:text-base">0</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-muted-foreground text-[8px] sm:text-xs">Losses</div>
+                          <div className="font-mono font-semibold text-red-500 text-[10px] sm:text-base">0</div>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
