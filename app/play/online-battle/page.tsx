@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/lib/auth-context"
-import { db } from "@/lib/firebase"
+import { db, realtimeDb } from "@/lib/firebase"
 import {
   collection,
   addDoc,
@@ -17,8 +17,8 @@ import {
   deleteDoc,
   getDocs,
   serverTimestamp,
-  setDoc,
 } from "firebase/firestore"
+import { ref, set, onValue, remove } from "firebase/database"
 import { getRankByBattlePoints, type BattleRank } from "@/lib/rank-system"
 import { updateBattleResult, getUserProfile, type UserProfile } from "@/lib/game-service"
 
@@ -40,16 +40,15 @@ interface Tetromino {
   type: TetrominoType
 }
 
-interface GameState {
-  board: number[][]
-  boardColors: string[][]
-  currentPiece: Tetromino | null
-  position: Position
+interface GameStateSync {
   score: number
   lines: number
   level: number
   gameOver: boolean
-  surrendered?: boolean
+  surrendered: boolean
+  currentPieceType: TetrominoType | null
+  position: Position
+  lastUpdate: number
 }
 
 const TETROMINOS: Record<TetrominoType, Omit<Tetromino, "type">> = {
@@ -137,7 +136,6 @@ export default function OnlineBattlePage() {
   const animationFrameRef = useRef<number | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
 
-  // Matchmaking state
   const [matchmaking, setMatchmaking] = useState(true)
   const [matchId, setMatchId] = useState<string | null>(null)
   const [opponentId, setOpponentId] = useState<string | null>(null)
@@ -161,32 +159,27 @@ export default function OnlineBattlePage() {
   const [score, setScore] = useState(0)
   const [lines, setLines] = useState(0)
   const [level, setLevel] = useState(1)
-  const [pieces, setPieces] = useState(0)
-  const [inputs, setInputs] = useState(0)
   const [startTime, setStartTime] = useState<number>(Date.now())
   const [elapsedTime, setElapsedTime] = useState(0)
   const [clearingLines, setClearingLines] = useState<number[]>([])
   const [isClearing, setIsClearing] = useState(false)
   const [gameOver, setGameOver] = useState(false)
+  const [surrendered, setSurrendered] = useState(false)
+  const [waitingForOpponent, setWaitingForOpponent] = useState(false)
 
-  const [opponentState, setOpponentState] = useState<GameState>({
-    board: createEmptyBoard(),
-    boardColors: createEmptyColorBoard(),
-    currentPiece: null,
-    position: { x: 0, y: 0 },
+  const [opponentState, setOpponentState] = useState<GameStateSync>({
     score: 0,
     lines: 0,
     level: 1,
     gameOver: false,
     surrendered: false,
+    currentPieceType: null,
+    position: { x: 0, y: 0 },
+    lastUpdate: 0,
   })
-
-  const touchStartRef = useRef<{ x: number; y: number } | null>(null)
 
   const [opponentFinishedFirst, setOpponentFinishedFirst] = useState(false)
   const [opponentFinalScore, setOpponentFinalScore] = useState<number | null>(null)
-  const [surrendered, setSurrendered] = useState(false)
-  const [waitingForOpponent, setWaitingForOpponent] = useState(false)
 
   const playLineClearSound = useCallback(() => {
     if (!audioContextRef.current) return
@@ -222,7 +215,6 @@ export default function OnlineBattlePage() {
 
   const handleSurrender = useCallback(() => {
     if (gameOver || surrendered) return
-
     console.log("[v0] Player surrendered")
     setSurrendered(true)
     setGameOver(true)
@@ -237,14 +229,14 @@ export default function OnlineBattlePage() {
   }, [])
 
   useEffect(() => {
-    console.log("[v0] Component mounted", { user: !!user, loading, db: !!db })
+    console.log("[v0] Component mounted", { user: !!user, loading, db: !!db, realtimeDb: !!realtimeDb })
 
     if (!user) {
       console.log("[v0] No user found")
       return
     }
 
-    if (!db) {
+    if (!db || !realtimeDb) {
       console.log("[v0] Firebase not configured")
       setError("Firebase тохиргоо хийгдээгүй байна")
       return
@@ -258,16 +250,10 @@ export default function OnlineBattlePage() {
           setMyProfile(profile)
           const rank = getRankByBattlePoints(profile.battlePoints || 1000)
           setMyRank(rank)
-          console.log("[v0] User profile loaded successfully:", {
-            battlePoints: profile.battlePoints,
-            rank: rank.name,
-          })
-        } else {
-          console.log("[v0] No profile found, will be created on first game")
+          console.log("[v0] User profile loaded:", { battlePoints: profile.battlePoints, rank: rank.name })
         }
       } catch (err) {
         console.error("[v0] Error loading user profile:", err)
-        setError("Хэрэглэгчийн мэдээлэл ачаалахад алдаа гарлаа")
       }
     }
 
@@ -303,10 +289,8 @@ export default function OnlineBattlePage() {
 
   useEffect(() => {
     if (waitingForOpponent && !opponentState.gameOver && opponentState.score > score) {
-      console.log("[v0] Opponent exceeded my score while I was waiting - they win!")
-      // Opponent wins immediately
+      console.log("[v0] Opponent exceeded my score while waiting - they win!")
       setWaitingForOpponent(false)
-      // No need to setGameOver here, the battle result update will handle it
     }
   }, [waitingForOpponent, opponentState.score, opponentState.gameOver, score])
 
@@ -341,7 +325,7 @@ export default function OnlineBattlePage() {
 
     if (!shouldUpdateResult || !user || !opponentId || !db || battlePointsChange !== null) return
     if (!myProfile || !opponentProfile) {
-      console.log("[v0] Waiting for profiles to load before updating battle result")
+      console.log("[v0] Waiting for profiles to load")
       return
     }
 
@@ -351,26 +335,17 @@ export default function OnlineBattlePage() {
 
         if (surrendered) {
           iWon = false
-          console.log("[v0] I surrendered - I lose")
         } else if (opponentState.surrendered) {
           iWon = true
-          console.log("[v0] Opponent surrendered - I win")
         } else if (waitingForOpponent && opponentState.score > score) {
           iWon = false
-          console.log("[v0] Opponent exceeded my score while waiting - they win")
         } else {
           iWon = score > opponentState.score
-          console.log("[v0] Battle ended - comparing scores:", {
-            iWon,
-            myScore: score,
-            opponentScore: opponentState.score,
-          })
         }
 
         setBattleResult(iWon ? "win" : "loss")
 
         if (iWon) {
-          console.log("[v0] Updating battle result - I won")
           await updateBattleResult(user.uid, opponentId, {
             winnerScore: score,
             winnerLines: lines,
@@ -380,7 +355,6 @@ export default function OnlineBattlePage() {
             loserTime: elapsedTime,
           })
         } else {
-          console.log("[v0] Updating battle result - I lost")
           await updateBattleResult(opponentId, user.uid, {
             winnerScore: opponentState.score,
             winnerLines: opponentState.lines,
@@ -398,15 +372,10 @@ export default function OnlineBattlePage() {
           setMyProfile(updatedProfile)
           const newRank = getRankByBattlePoints(updatedProfile.battlePoints)
           setMyRank(newRank)
-          console.log("[v0] Battle result updated successfully:", {
-            pointsChange,
-            newPoints: updatedProfile.battlePoints,
-            newRank: newRank.name,
-          })
+          console.log("[v0] Battle result updated:", { pointsChange, newRank: newRank.name })
         }
       } catch (err) {
         console.error("[v0] Error updating battle result:", err)
-        setError("Тоглоомын үр дүн хадгалахад алдаа гарлаа")
       }
     }
 
@@ -415,7 +384,7 @@ export default function OnlineBattlePage() {
     gameOver,
     opponentState.gameOver,
     surrendered,
-    opponentState.surrendered, // Added dependency
+    opponentState.surrendered,
     waitingForOpponent,
     opponentState.score,
     user,
@@ -430,23 +399,19 @@ export default function OnlineBattlePage() {
   ])
 
   useEffect(() => {
-    if (!user || !matchmaking || loading || !db) {
-      console.log("[v0] Skipping matchmaking:", { user: !!user, matchmaking, loading, db: !!db })
-      return
-    }
+    if (!user || !matchmaking || loading || !db) return
 
     let matchmakingDoc: string | null = null
     let unsubscribe: (() => void) | null = null
 
     const findMatch = async () => {
       try {
-        console.log("[v0] Starting matchmaking for user:", user.uid)
+        console.log("[v0] Starting matchmaking")
         const q = query(collection(db, "matchmaking"), where("status", "==", "waiting"))
         const snapshot = await getDocs(q)
         const availableMatches = snapshot.docs.filter((doc) => doc.data().playerId !== user.uid)
 
         if (availableMatches.length > 0) {
-          console.log("[v0] Found", availableMatches.length, "available matches")
           const waitingMatch = availableMatches[0]
           const matchData = waitingMatch.data()
 
@@ -460,9 +425,8 @@ export default function OnlineBattlePage() {
           setOpponentId(matchData.playerId)
           setOpponentName(matchData.playerName)
           setMatchmaking(false)
-          console.log("[v0] Matched successfully with:", matchData.playerName)
+          console.log("[v0] Matched with:", matchData.playerName)
         } else {
-          console.log("[v0] No matches found, creating new match")
           const docRef = await addDoc(collection(db, "matchmaking"), {
             playerId: user.uid,
             playerName: user.displayName || user.email || "Player 1",
@@ -473,117 +437,96 @@ export default function OnlineBattlePage() {
           })
 
           matchmakingDoc = docRef.id
-          console.log("[v0] Created match:", docRef.id, "- waiting for opponent...")
 
           unsubscribe = onSnapshot(doc(db, "matchmaking", docRef.id), (doc) => {
             const data = doc.data()
-            console.log("[v0] Match status update:", data?.status)
             if (data && data.status === "matched" && data.player2Id) {
-              console.log("[v0] Opponent found:", data.player2Name)
               setMatchId(docRef.id)
               setOpponentId(data.player2Id)
               setOpponentName(data.player2Name)
               setMatchmaking(false)
+              console.log("[v0] Opponent found:", data.player2Name)
             }
           })
         }
       } catch (err) {
         console.error("[v0] Matchmaking error:", err)
-        setError("Өрсөлдөгч хайхад алдаа гарлаа. Дахин оролдоно уу.")
+        setError("Өрсөлдөгч хайхад алдаа гарлаа")
       }
     }
 
     findMatch()
 
     return () => {
-      console.log("[v0] Cleaning up matchmaking")
       if (unsubscribe) unsubscribe()
       if (matchmakingDoc) {
-        deleteDoc(doc(db, "matchmaking", matchmakingDoc)).catch((err) => {
-          console.error("[v0] Error deleting matchmaking doc:", err)
-        })
+        deleteDoc(doc(db, "matchmaking", matchmakingDoc)).catch(console.error)
       }
     }
   }, [user, matchmaking, loading])
 
   useEffect(() => {
-    if (!matchId || !user || gameOver || !db) {
-      return
-    }
+    if (!matchId || !user || !realtimeDb) return
 
-    const gameStateData = {
-      board: JSON.stringify(board),
-      boardColors: JSON.stringify(boardColors.current),
-      currentPiece: currentPiece
-        ? {
-            shape: JSON.stringify(currentPiece.shape),
-            color: currentPiece.color,
-            type: currentPiece.type,
-          }
-        : null,
-      position,
+    const gameStateData: GameStateSync = {
       score,
       lines,
       level,
       gameOver,
       surrendered,
-      updatedAt: Date.now(),
+      currentPieceType: currentPiece?.type || null,
+      position,
+      lastUpdate: Date.now(),
     }
 
-    console.log("[v0] Syncing game state:", { matchId, score, lines, level })
-
-    setDoc(doc(db, "battleGames", `${matchId}_${user.uid}`), gameStateData, { merge: true }).catch((err) => {
+    const gameRef = ref(realtimeDb, `battles/${matchId}/${user.uid}`)
+    set(gameRef, gameStateData).catch((err) => {
       console.error("[v0] Error syncing game state:", err)
     })
-  }, [matchId, user, board, currentPiece, position, score, lines, level, gameOver, surrendered])
+  }, [matchId, user, score, lines, level, gameOver, surrendered, currentPiece, position])
 
   useEffect(() => {
-    if (!matchId || !opponentId || !db) {
-      return
-    }
+    if (!matchId || !opponentId || !realtimeDb) return
 
-    console.log("[v0] Setting up opponent state listener:", { matchId, opponentId })
+    console.log("[v0] Setting up real-time opponent listener")
+    const opponentRef = ref(realtimeDb, `battles/${matchId}/${opponentId}`)
 
-    const unsubscribe = onSnapshot(
-      doc(db, "battleGames", `${matchId}_${opponentId}`),
-      (doc) => {
-        const data = doc.data()
+    const unsubscribe = onValue(
+      opponentRef,
+      (snapshot) => {
+        const data = snapshot.val()
         if (data) {
-          console.log("[v0] Opponent state updated:", {
-            score: data.score,
-            lines: data.lines,
-            gameOver: data.gameOver,
-            surrendered: data.surrendered,
-          })
           setOpponentState({
-            board: data.board ? JSON.parse(data.board) : createEmptyBoard(),
-            boardColors: data.boardColors ? JSON.parse(data.boardColors) : createEmptyColorBoard(),
-            currentPiece: data.currentPiece
-              ? {
-                  shape: JSON.parse(data.currentPiece.shape),
-                  color: data.currentPiece.color,
-                  type: data.currentPiece.type,
-                }
-              : null,
-            position: data.position || { x: 0, y: 0 },
             score: data.score || 0,
             lines: data.lines || 0,
             level: data.level || 1,
             gameOver: data.gameOver || false,
             surrendered: data.surrendered || false,
+            currentPieceType: data.currentPieceType || null,
+            position: data.position || { x: 0, y: 0 },
+            lastUpdate: data.lastUpdate || 0,
           })
         }
       },
       (err) => {
-        console.error("[v0] Error listening to opponent state:", err)
+        console.error("[v0] Error listening to opponent:", err)
       },
     )
 
     return () => {
-      console.log("[v0] Cleaning up opponent state listener")
+      console.log("[v0] Cleaning up opponent listener")
       unsubscribe()
     }
   }, [matchId, opponentId])
+
+  useEffect(() => {
+    return () => {
+      if (matchId && user && realtimeDb) {
+        const gameRef = ref(realtimeDb, `battles/${matchId}/${user.uid}`)
+        remove(gameRef).catch(console.error)
+      }
+    }
+  }, [matchId, user])
 
   const checkCollision = useCallback(
     (piece: Tetromino, pos: Position): boolean => {
@@ -663,7 +606,6 @@ export default function OnlineBattlePage() {
 
   const holdCurrentPiece = useCallback(() => {
     if (gameOver || !canHold || isClearing) return
-    setInputs((prev) => prev + 1)
 
     if (holdPiece === null) {
       setHoldPiece(currentPiece)
@@ -671,7 +613,6 @@ export default function OnlineBattlePage() {
       setNextQueue((prev) => [...prev.slice(1), getRandomTetromino()])
       setCurrentPiece(newPiece)
       setPosition({ x: 3, y: 0 })
-      setPieces((prev) => prev + 1)
     } else {
       const temp = currentPiece
       setCurrentPiece(holdPiece)
@@ -683,7 +624,6 @@ export default function OnlineBattlePage() {
 
   const rotatePiece = useCallback(() => {
     if (gameOver || isClearing) return
-    setInputs((prev) => prev + 1)
     const rotated = currentPiece.shape[0].map((_, i) => currentPiece.shape.map((row) => row[i]).reverse())
     const rotatedPiece = { ...currentPiece, shape: rotated }
     if (!checkCollision(rotatedPiece, position)) {
@@ -711,7 +651,6 @@ export default function OnlineBattlePage() {
       } else {
         setCurrentPiece(newPiece)
         setPosition(startPos)
-        setPieces((prev) => prev + 1)
         setCanHold(true)
       }
     }
@@ -729,7 +668,6 @@ export default function OnlineBattlePage() {
 
   const moveLeft = useCallback(() => {
     if (gameOver || isClearing) return
-    setInputs((prev) => prev + 1)
     const newPos = { x: position.x - 1, y: position.y }
     if (!checkCollision(currentPiece, newPos)) {
       setPosition(newPos)
@@ -738,7 +676,6 @@ export default function OnlineBattlePage() {
 
   const moveRight = useCallback(() => {
     if (gameOver || isClearing) return
-    setInputs((prev) => prev + 1)
     const newPos = { x: position.x + 1, y: position.y }
     if (!checkCollision(currentPiece, newPos)) {
       setPosition(newPos)
@@ -747,7 +684,6 @@ export default function OnlineBattlePage() {
 
   const hardDrop = useCallback(() => {
     if (gameOver || isClearing) return
-    setInputs((prev) => prev + 1)
 
     let newY = position.y
     while (!checkCollision(currentPiece, { x: position.x, y: newY + 1 })) {
@@ -768,7 +704,6 @@ export default function OnlineBattlePage() {
     } else {
       setCurrentPiece(newPiece)
       setPosition(startPos)
-      setPieces((prev) => prev + 1)
       setCanHold(true)
     }
   }, [
@@ -787,7 +722,7 @@ export default function OnlineBattlePage() {
     if (gameOver) return
     const interval = setInterval(() => {
       setElapsedTime(Math.floor((Date.now() - startTime) / 1000))
-    }, 1000)
+    }, 100)
     return () => clearInterval(interval)
   }, [startTime, gameOver])
 
@@ -977,24 +912,32 @@ export default function OnlineBattlePage() {
       ctx.fillStyle = "#000000"
       ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-      for (let y = 0; y < BOARD_HEIGHT; y++) {
-        for (let x = 0; x < BOARD_WIDTH; x++) {
-          if (opponentState.board[y][x]) {
-            const color = opponentState.boardColors[y][x] || "#666666"
-            ctx.fillStyle = color
-            ctx.fillRect(x * OPPONENT_BLOCK_SIZE, y * OPPONENT_BLOCK_SIZE, OPPONENT_BLOCK_SIZE, OPPONENT_BLOCK_SIZE)
-          }
-        }
+      // Draw grid
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.05)"
+      ctx.lineWidth = 1
+      for (let y = 0; y <= BOARD_HEIGHT; y++) {
+        ctx.beginPath()
+        ctx.moveTo(0, y * OPPONENT_BLOCK_SIZE)
+        ctx.lineTo(BOARD_WIDTH * OPPONENT_BLOCK_SIZE, y * OPPONENT_BLOCK_SIZE)
+        ctx.stroke()
+      }
+      for (let x = 0; x <= BOARD_WIDTH; x++) {
+        ctx.beginPath()
+        ctx.moveTo(x * OPPONENT_BLOCK_SIZE, 0)
+        ctx.lineTo(x * OPPONENT_BLOCK_SIZE, BOARD_HEIGHT * OPPONENT_BLOCK_SIZE)
+        ctx.stroke()
       }
 
-      if (opponentState.currentPiece && !opponentState.gameOver) {
-        for (let y = 0; y < opponentState.currentPiece.shape.length; y++) {
-          for (let x = 0; x < opponentState.currentPiece.shape[y].length; x++) {
-            if (opponentState.currentPiece.shape[y][x]) {
+      // Draw opponent's current piece
+      if (opponentState.currentPieceType && !opponentState.gameOver) {
+        const piece = { ...TETROMINOS[opponentState.currentPieceType], type: opponentState.currentPieceType }
+        for (let y = 0; y < piece.shape.length; y++) {
+          for (let x = 0; x < piece.shape[y].length; x++) {
+            if (piece.shape[y][x]) {
               const boardX = opponentState.position.x + x
               const boardY = opponentState.position.y + y
               if (boardY >= 0) {
-                ctx.fillStyle = opponentState.currentPiece.color
+                ctx.fillStyle = piece.color
                 ctx.fillRect(
                   boardX * OPPONENT_BLOCK_SIZE,
                   boardY * OPPONENT_BLOCK_SIZE,
@@ -1025,7 +968,6 @@ export default function OnlineBattlePage() {
   }
 
   if (!user) {
-    console.log("[v0] No user, redirecting to home")
     router.push("/")
     return null
   }
