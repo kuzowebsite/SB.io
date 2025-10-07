@@ -435,7 +435,7 @@ function LeaderboardsTab() {
                         <div className="text-center">
                           <div className="text-muted-foreground text-[8px] sm:text-xs">Battle Points</div>
                           <div className="font-mono font-semibold text-primary text-[10px] sm:text-base">
-                            {(entry.battlePoints || 0).toLocaleString()}
+                            {(entry.battlePoints || 1000).toLocaleString()}
                           </div>
                         </div>
                         <div className="text-center">
