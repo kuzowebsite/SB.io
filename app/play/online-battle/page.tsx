@@ -448,31 +448,33 @@ export default function OnlineBattlePage() {
 
         console.log("[v0] Battle result:", { iWon, myScore: score, opponentScore: opponentState.score })
 
-        const formatTime = () => {
-    const totalMs = Date.now() - startTime
-    const seconds = Math.floor(totalMs / 1000)
-    const minutes = Math.floor(seconds / 60)
-    const remainingSeconds = seconds % 60
-    const hours = Math.floor(minutes / 60)
-    const remainingMinutes = minutes % 60
-
-    if (hours > 0) {
-      return `${hours.toString().padStart(2, "0")}:${remainingMinutes
-        .toString()
-        .padStart(2, "0")}:${remainingSeconds.toString().padStart(2, "0")}`
-    } else {
-      return `${remainingMinutes.toString().padStart(2, "0")}:${remainingSeconds
-        .toString()
-        .padStart(2, "0")}`
-    }
-  }
         setBattleResult(iWon ? "win" : "loss")
 
+        const myTime = finishTime ? Math.floor((finishTime - startTime) / 1000) : 0
+        const opponentTime = opponentState.finishTime ? Math.floor((opponentState.finishTime - startTime) / 1000) : 0
+
+        await updateBattleResult(iWon ? user.uid : opponentId, iWon ? opponentId : user.uid, {
+          winnerScore: iWon ? score : opponentState.score,
+          winnerLines: iWon ? lines : opponentState.lines,
+          winnerTime: iWon ? myTime : opponentTime,
+          loserScore: iWon ? opponentState.score : score,
+          loserLines: iWon ? opponentState.lines : lines,
+          loserTime: iWon ? opponentTime : myTime,
+        })
+
+        // Get updated profile to calculate points change
         const updatedProfile = await getUserProfile(user.uid)
-        if (updatedProfile) {
+        if (updatedProfile && myProfile) {
+          const pointsChange = updatedProfile.battlePoints - myProfile.battlePoints
+          setBattlePointsChange(pointsChange)
           setMyProfile(updatedProfile)
           const newRank = getRankByBattlePoints(updatedProfile.battlePoints || 1000)
           setMyRank(newRank)
+          console.log("[v0] Battle points updated:", {
+            oldPoints: myProfile.battlePoints,
+            newPoints: updatedProfile.battlePoints,
+            change: pointsChange,
+          })
         }
       } catch (err) {
         console.error("[v0] Error updating battle result:", err)
@@ -493,7 +495,9 @@ export default function OnlineBattlePage() {
     startTime,
     battleResult,
     myProfile,
-    opponentProfile,
+    lines,
+    opponentState.lines,
+    opponentState.finishTime,
   ])
 
   useEffect(() => {
@@ -504,6 +508,29 @@ export default function OnlineBattlePage() {
       }
     }
   }, [matchId, user])
+
+  useEffect(() => {
+    if (gameOver && !opponentState.gameOver && !waitingForOpponent) {
+      console.log("[v0] I finished first, waiting for opponent")
+      setWaitingForOpponent(true)
+    }
+  }, [gameOver, opponentState.gameOver, waitingForOpponent])
+
+  useEffect(() => {
+    if (opponentState.gameOver && !gameOver && !opponentFinishedFirst) {
+      console.log("[v0] Opponent finished first with score:", opponentState.score)
+      setOpponentFinishedFirst(true)
+      setOpponentFinalScore(opponentState.score)
+    }
+  }, [opponentState.gameOver, opponentState.score, gameOver, opponentFinishedFirst])
+
+  useEffect(() => {
+    if (waitingForOpponent && opponentState.gameOver && opponentState.score > score) {
+      console.log("[v0] Opponent surpassed my score, I lose")
+      // Game already over, just clear waiting state
+      setWaitingForOpponent(false)
+    }
+  }, [waitingForOpponent, opponentState.gameOver, opponentState.score, score])
 
   const checkCollision = useCallback(
     (piece: Tetromino, pos: Position): boolean => {
@@ -1065,31 +1092,6 @@ export default function OnlineBattlePage() {
         </div>
       )}
 
-      <div className="fixed top-2 right-2 sm:top-4 sm:right-4 z-50">
-        <Card className="bg-zinc-900/95 border-zinc-700 p-1.5 sm:p-2">
-          <div className="flex items-center gap-1 mb-1">
-            <div className="text-[10px] sm:text-xs font-bold text-white truncate max-w-[80px]">{opponentName}</div>
-            {opponentRank && (
-              <div className="flex items-center gap-0.5">
-                <span className="text-[9px] font-bold" style={{ color: opponentRank.color }}>
-                  {opponentRank.name.split(" ")[0]}
-                </span>
-              </div>
-            )}
-          </div>
-          <canvas
-            ref={opponentCanvasRef}
-            width={BOARD_WIDTH * OPPONENT_BLOCK_SIZE}
-            height={BOARD_HEIGHT * OPPONENT_BLOCK_SIZE}
-            className="border border-zinc-800 rounded w-20 sm:w-24 md:w-28 h-auto"
-          />
-          <div className="text-[9px] sm:text-xs text-zinc-400 mt-1">
-            {opponentState.score} | {opponentState.lines}L
-          </div>
-          {opponentState.gameOver && <div className="text-[9px] sm:text-xs text-red-500 font-bold mt-1">GAME OVER</div>}
-        </Card>
-      </div>
-
       <div className="flex flex-row gap-1 sm:gap-2 lg:gap-4 items-start justify-center w-full max-w-7xl">
         <div className="flex flex-col gap-1 sm:gap-2 lg:gap-4 w-16 sm:w-24 md:w-32 lg:w-52 flex-shrink-0">
           <Card className="p-1 sm:p-2 lg:p-4 bg-zinc-900 border-zinc-600">
@@ -1131,7 +1133,6 @@ export default function OnlineBattlePage() {
             className="border-2 border-zinc-800 rounded w-[180px] sm:w-[240px] md:w-[300px] lg:w-[360px] xl:w-[420px] h-auto"
             style={{ imageRendering: "pixelated", touchAction: "none" }}
           />
-
           {!gameOver && !surrendered && (
             <Button onClick={handleSurrender} variant="destructive" className="w-full text-xs sm:text-sm">
               Бууж өгөх
