@@ -40,6 +40,12 @@ interface Tetromino {
   type: TetrominoType
 }
 
+interface LockedCell {
+  x: number
+  y: number
+  color: string
+}
+
 interface GameStateSync {
   score: number
   lines: number
@@ -48,6 +54,8 @@ interface GameStateSync {
   surrendered: boolean
   currentPieceType: TetrominoType | null
   position: Position
+  lockedCells: LockedCell[]
+  finishTime: number | null
   lastUpdate: number
 }
 
@@ -151,6 +159,7 @@ export default function OnlineBattlePage() {
 
   const [board, setBoard] = useState<number[][]>(createEmptyBoard())
   const boardColors = useRef<string[][]>(createEmptyColorBoard())
+  const [lockedCells, setLockedCells] = useState<LockedCell[]>([])
   const [currentPiece, setCurrentPiece] = useState<Tetromino>(getRandomTetromino())
   const [nextQueue, setNextQueue] = useState<Tetromino[]>(generateQueue(5))
   const [holdPiece, setHoldPiece] = useState<Tetromino | null>(null)
@@ -160,7 +169,9 @@ export default function OnlineBattlePage() {
   const [lines, setLines] = useState(0)
   const [level, setLevel] = useState(1)
   const [startTime, setStartTime] = useState<number>(Date.now())
-  const [elapsedTime, setElapsedTime] = useState(0)
+  const [finishTime, setFinishTime] = useState<number | null>(null)
+  const elapsedTimeRef = useRef(0)
+  const [, forceUpdate] = useState(0)
   const [clearingLines, setClearingLines] = useState<number[]>([])
   const [isClearing, setIsClearing] = useState(false)
   const [gameOver, setGameOver] = useState(false)
@@ -175,6 +186,8 @@ export default function OnlineBattlePage() {
     surrendered: false,
     currentPieceType: null,
     position: { x: 0, y: 0 },
+    lockedCells: [],
+    finishTime: null,
     lastUpdate: 0,
   })
 
@@ -218,6 +231,7 @@ export default function OnlineBattlePage() {
     console.log("[v0] Player surrendered")
     setSurrendered(true)
     setGameOver(true)
+    setFinishTime(Date.now())
     playGameOverSound()
   }, [gameOver, surrendered, playGameOverSound])
 
@@ -279,124 +293,6 @@ export default function OnlineBattlePage() {
 
     loadOpponentProfile()
   }, [opponentId])
-
-  useEffect(() => {
-    if (gameOver && !opponentState.gameOver && !surrendered) {
-      setWaitingForOpponent(true)
-      console.log("[v0] I finished first with score:", score, "- waiting for opponent")
-    }
-  }, [gameOver, opponentState.gameOver, score, surrendered])
-
-  useEffect(() => {
-    if (waitingForOpponent && !opponentState.gameOver && opponentState.score > score) {
-      console.log("[v0] Opponent exceeded my score while waiting - they win!")
-      setWaitingForOpponent(false)
-    }
-  }, [waitingForOpponent, opponentState.score, opponentState.gameOver, score])
-
-  useEffect(() => {
-    if (opponentState.gameOver && !gameOver && opponentFinalScore === null) {
-      setOpponentFinishedFirst(true)
-      setOpponentFinalScore(opponentState.score)
-      console.log("[v0] Opponent finished first with score:", opponentState.score)
-    }
-  }, [opponentState.gameOver, opponentState.score, gameOver, opponentFinalScore])
-
-  useEffect(() => {
-    if (opponentState.surrendered && !gameOver) {
-      console.log("[v0] Opponent surrendered - I win!")
-      setGameOver(true)
-      playGameOverSound()
-    }
-  }, [opponentState.surrendered, gameOver, playGameOverSound])
-
-  useEffect(() => {
-    if (waitingForOpponent && opponentState.gameOver) {
-      console.log("[v0] Opponent finished - clearing waiting state")
-      setWaitingForOpponent(false)
-    }
-  }, [waitingForOpponent, opponentState.gameOver])
-
-  useEffect(() => {
-    const bothFinished = gameOver && opponentState.gameOver
-    const opponentSurrendered = opponentState.surrendered && !gameOver
-    const shouldUpdateResult =
-      bothFinished || surrendered || opponentSurrendered || (waitingForOpponent && opponentState.score > score)
-
-    if (!shouldUpdateResult || !user || !opponentId || !db || battlePointsChange !== null) return
-    if (!myProfile || !opponentProfile) {
-      console.log("[v0] Waiting for profiles to load")
-      return
-    }
-
-    const updateBattle = async () => {
-      try {
-        let iWon: boolean
-
-        if (surrendered) {
-          iWon = false
-        } else if (opponentState.surrendered) {
-          iWon = true
-        } else if (waitingForOpponent && opponentState.score > score) {
-          iWon = false
-        } else {
-          iWon = score > opponentState.score
-        }
-
-        setBattleResult(iWon ? "win" : "loss")
-
-        if (iWon) {
-          await updateBattleResult(user.uid, opponentId, {
-            winnerScore: score,
-            winnerLines: lines,
-            winnerTime: elapsedTime,
-            loserScore: opponentState.score,
-            loserLines: opponentState.lines,
-            loserTime: elapsedTime,
-          })
-        } else {
-          await updateBattleResult(opponentId, user.uid, {
-            winnerScore: opponentState.score,
-            winnerLines: opponentState.lines,
-            winnerTime: elapsedTime,
-            loserScore: score,
-            loserLines: lines,
-            loserTime: elapsedTime,
-          })
-        }
-
-        const updatedProfile = await getUserProfile(user.uid)
-        if (updatedProfile) {
-          const pointsChange = updatedProfile.battlePoints - myProfile.battlePoints
-          setBattlePointsChange(pointsChange)
-          setMyProfile(updatedProfile)
-          const newRank = getRankByBattlePoints(updatedProfile.battlePoints)
-          setMyRank(newRank)
-          console.log("[v0] Battle result updated:", { pointsChange, newRank: newRank.name })
-        }
-      } catch (err) {
-        console.error("[v0] Error updating battle result:", err)
-      }
-    }
-
-    updateBattle()
-  }, [
-    gameOver,
-    opponentState.gameOver,
-    surrendered,
-    opponentState.surrendered,
-    waitingForOpponent,
-    opponentState.score,
-    user,
-    opponentId,
-    myProfile,
-    opponentProfile,
-    score,
-    opponentState.lines,
-    lines,
-    elapsedTime,
-    battlePointsChange,
-  ])
 
   useEffect(() => {
     if (!user || !matchmaking || loading || !db) return
@@ -476,6 +372,8 @@ export default function OnlineBattlePage() {
       surrendered,
       currentPieceType: currentPiece?.type || null,
       position,
+      lockedCells,
+      finishTime,
       lastUpdate: Date.now(),
     }
 
@@ -483,7 +381,7 @@ export default function OnlineBattlePage() {
     set(gameRef, gameStateData).catch((err) => {
       console.error("[v0] Error syncing game state:", err)
     })
-  }, [matchId, user, score, lines, level, gameOver, surrendered, currentPiece, position])
+  }, [matchId, user, score, lines, level, gameOver, surrendered, currentPiece, position, lockedCells, finishTime])
 
   useEffect(() => {
     if (!matchId || !opponentId || !realtimeDb) return
@@ -504,6 +402,8 @@ export default function OnlineBattlePage() {
             surrendered: data.surrendered || false,
             currentPieceType: data.currentPieceType || null,
             position: data.position || { x: 0, y: 0 },
+            lockedCells: data.lockedCells || [],
+            finishTime: data.finishTime || null,
             lastUpdate: data.lastUpdate || 0,
           })
         }
@@ -518,6 +418,83 @@ export default function OnlineBattlePage() {
       unsubscribe()
     }
   }, [matchId, opponentId])
+
+  useEffect(() => {
+    if (!gameOver || !opponentState.gameOver || !user || !opponentId || battleResult !== null) return
+
+    const updateResult = async () => {
+      try {
+        console.log("[v0] Both players finished, calculating result")
+
+        let iWon: boolean
+
+        // If either player surrendered, they lose
+        if (surrendered) {
+          iWon = false
+        } else if (opponentState.surrendered) {
+          iWon = true
+        } else if (score !== opponentState.score) {
+          // Different scores - higher score wins
+          iWon = score > opponentState.score
+        } else {
+          // Same score - shorter time wins
+          const myTime = finishTime ? finishTime - startTime : Number.POSITIVE_INFINITY
+          const opponentTime = opponentState.finishTime
+            ? opponentState.finishTime - startTime
+            : Number.POSITIVE_INFINITY
+          iWon = myTime < opponentTime
+          console.log("[v0] Score tie, comparing times:", { myTime, opponentTime, iWon })
+        }
+
+        console.log("[v0] Battle result:", { iWon, myScore: score, opponentScore: opponentState.score })
+
+        const formatTime = () => {
+    const totalMs = Date.now() - startTime
+    const seconds = Math.floor(totalMs / 1000)
+    const minutes = Math.floor(seconds / 60)
+    const remainingSeconds = seconds % 60
+    const hours = Math.floor(minutes / 60)
+    const remainingMinutes = minutes % 60
+
+    if (hours > 0) {
+      return `${hours.toString().padStart(2, "0")}:${remainingMinutes
+        .toString()
+        .padStart(2, "0")}:${remainingSeconds.toString().padStart(2, "0")}`
+    } else {
+      return `${remainingMinutes.toString().padStart(2, "0")}:${remainingSeconds
+        .toString()
+        .padStart(2, "0")}`
+    }
+  }
+        setBattleResult(iWon ? "win" : "loss")
+
+        const updatedProfile = await getUserProfile(user.uid)
+        if (updatedProfile) {
+          setMyProfile(updatedProfile)
+          const newRank = getRankByBattlePoints(updatedProfile.battlePoints || 1000)
+          setMyRank(newRank)
+        }
+      } catch (err) {
+        console.error("[v0] Error updating battle result:", err)
+      }
+    }
+
+    updateResult()
+  }, [
+    gameOver,
+    opponentState.gameOver,
+    opponentState.surrendered,
+    user,
+    opponentId,
+    score,
+    opponentState.score,
+    surrendered,
+    finishTime,
+    startTime,
+    battleResult,
+    myProfile,
+    opponentProfile,
+  ])
 
   useEffect(() => {
     return () => {
@@ -551,6 +528,7 @@ export default function OnlineBattlePage() {
       const actualPos = pos || position
       const newBoard = board.map((row) => [...row])
       const newColors = boardColors.current.map((row) => [...row])
+      const newLockedCells: LockedCell[] = []
 
       for (let y = 0; y < currentPiece.shape.length; y++) {
         for (let x = 0; x < currentPiece.shape[y].length; x++) {
@@ -560,6 +538,7 @@ export default function OnlineBattlePage() {
             if (boardY >= 0) {
               newBoard[boardY][boardX] = 1
               newColors[boardY][boardX] = currentPiece.color
+              newLockedCells.push({ x: boardX, y: boardY, color: currentPiece.color })
             }
           }
         }
@@ -567,6 +546,7 @@ export default function OnlineBattlePage() {
 
       boardColors.current = newColors
       setBoard(newBoard)
+      setLockedCells((prev) => [...prev, ...newLockedCells])
     },
     [board, currentPiece, position],
   )
@@ -595,6 +575,15 @@ export default function OnlineBattlePage() {
 
         boardColors.current = newColors
         setBoard(newBoard)
+
+        setLockedCells((prev) => {
+          const filtered = prev.filter((cell) => !linesToClear.includes(cell.y))
+          return filtered.map((cell) => {
+            const linesBelow = linesToClear.filter((line) => line > cell.y).length
+            return { ...cell, y: cell.y + linesBelow }
+          })
+        })
+
         setLines((prev) => prev + linesToClear.length)
         setScore((prev) => prev + linesToClear.length * 100 * level)
         setLevel(Math.floor((lines + linesToClear.length) / 10) + 1)
@@ -647,6 +636,7 @@ export default function OnlineBattlePage() {
 
       if (checkCollision(newPiece, startPos)) {
         setGameOver(true)
+        setFinishTime(Date.now())
         playGameOverSound()
       } else {
         setCurrentPiece(newPiece)
@@ -700,6 +690,7 @@ export default function OnlineBattlePage() {
 
     if (checkCollision(newPiece, startPos)) {
       setGameOver(true)
+      setFinishTime(Date.now())
       playGameOverSound()
     } else {
       setCurrentPiece(newPiece)
@@ -720,10 +711,16 @@ export default function OnlineBattlePage() {
 
   useEffect(() => {
     if (gameOver) return
-    const interval = setInterval(() => {
-      setElapsedTime(Math.floor((Date.now() - startTime) / 1000))
-    }, 100)
-    return () => clearInterval(interval)
+
+    let rafId: number
+    const updateTime = () => {
+      elapsedTimeRef.current = Math.floor((Date.now() - startTime) / 1000)
+      forceUpdate((n) => n + 1)
+      rafId = requestAnimationFrame(updateTime)
+    }
+
+    rafId = requestAnimationFrame(updateTime)
+    return () => cancelAnimationFrame(rafId)
   }, [startTime, gameOver])
 
   useEffect(() => {
@@ -797,18 +794,20 @@ export default function OnlineBattlePage() {
     )
   }
 
-  const formatTime = (seconds: number) => {
+  const formatTime = () => {
+    const totalMs = Date.now() - startTime
+    const seconds = Math.floor(totalMs / 1000)
     const hours = Math.floor(seconds / 3600)
     const minutes = Math.floor((seconds % 3600) / 60)
     const secs = seconds % 60
-    const ms = Math.floor((Date.now() - startTime) % 1000)
+    const ms = Math.floor((totalMs % 1000) / 10)
 
     if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}.${ms.toString().padStart(3, "0")}`
+      return `${hours}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}.${ms.toString().padStart(2, "0")}`
     } else if (minutes > 0) {
-      return `${minutes}:${secs.toString().padStart(2, "0")}.${ms.toString().padStart(3, "0")}`
+      return `${minutes}:${secs.toString().padStart(2, "0")}.${ms.toString().padStart(2, "0")}`
     } else {
-      return `${secs}.${ms.toString().padStart(3, "0")}s`
+      return `${secs}.${ms.toString().padStart(2, "0")}s`
     }
   }
 
@@ -838,18 +837,14 @@ export default function OnlineBattlePage() {
         ctx.stroke()
       }
 
-      for (let y = 0; y < BOARD_HEIGHT; y++) {
-        for (let x = 0; x < BOARD_WIDTH; x++) {
-          if (board[y][x]) {
-            const color = boardColors.current[y][x] || "#666666"
-            ctx.fillStyle = color
-            ctx.fillRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
-            ctx.strokeStyle = "rgba(0, 0, 0, 0.3)"
-            ctx.lineWidth = 2
-            ctx.strokeRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
-          }
-        }
-      }
+      // Draw locked cells (placed blocks) on my board
+      lockedCells.forEach((cell) => {
+        ctx.fillStyle = cell.color
+        ctx.fillRect(cell.x * BLOCK_SIZE, cell.y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
+        ctx.strokeStyle = "rgba(0, 0, 0, 0.3)"
+        ctx.lineWidth = 2
+        ctx.strokeRect(cell.x * BLOCK_SIZE, cell.y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
+      })
 
       if (!gameOver && !isClearing) {
         let ghostY = position.y
@@ -899,7 +894,7 @@ export default function OnlineBattlePage() {
         cancelAnimationFrame(animationFrameRef.current)
       }
     }
-  }, [board, currentPiece, position, gameOver, isClearing, checkCollision])
+  }, [board, currentPiece, position, gameOver, isClearing, checkCollision, lockedCells]) // Added lockedCells dependency
 
   useEffect(() => {
     const canvas = opponentCanvasRef.current
@@ -927,6 +922,24 @@ export default function OnlineBattlePage() {
         ctx.lineTo(x * OPPONENT_BLOCK_SIZE, BOARD_HEIGHT * OPPONENT_BLOCK_SIZE)
         ctx.stroke()
       }
+
+      opponentState.lockedCells.forEach((cell) => {
+        ctx.fillStyle = cell.color
+        ctx.fillRect(
+          cell.x * OPPONENT_BLOCK_SIZE,
+          cell.y * OPPONENT_BLOCK_SIZE,
+          OPPONENT_BLOCK_SIZE,
+          OPPONENT_BLOCK_SIZE,
+        )
+        ctx.strokeStyle = "rgba(0, 0, 0, 0.3)"
+        ctx.lineWidth = 1
+        ctx.strokeRect(
+          cell.x * OPPONENT_BLOCK_SIZE,
+          cell.y * OPPONENT_BLOCK_SIZE,
+          OPPONENT_BLOCK_SIZE,
+          OPPONENT_BLOCK_SIZE,
+        )
+      })
 
       // Draw opponent's current piece
       if (opponentState.currentPieceType && !opponentState.gameOver) {
@@ -1030,23 +1043,23 @@ export default function OnlineBattlePage() {
   return (
     <div className="min-h-screen flex items-start sm:items-center justify-center px-2 py-2 sm:p-4 lg:p-8 bg-black fixed inset-0 overflow-hidden">
       {waitingForOpponent && !opponentState.gameOver && (
-        <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-none">
-          <Card className="bg-blue-900/90 border-blue-600 p-4 text-center">
-            <div className="text-xl font-bold text-white mb-2">Өрсөлдөгч дуусаагүй байна</div>
-            <div className="text-3xl font-bold text-yellow-400">{score}</div>
-            <div className="text-sm text-zinc-300 mt-2">Таны оноо - Хүлээж байна...</div>
-            <div className="text-xs text-zinc-400 mt-1">Өрсөлдөгч: {opponentState.score} оноо</div>
+        <div className="fixed top-16 left-2 sm:top-20 sm:left-4 z-40">
+          <Card className="bg-blue-900/95 border-blue-600 p-2 sm:p-3">
+            <div className="text-xs sm:text-sm font-bold text-white mb-1">Хүлээж байна...</div>
+            <div className="text-lg sm:text-xl font-bold text-yellow-400">{score}</div>
+            <div className="text-[10px] sm:text-xs text-zinc-300 mt-1">Таны оноо</div>
+            <div className="text-[9px] sm:text-xs text-zinc-400">Өрсөлдөгч: {opponentState.score}</div>
           </Card>
         </div>
       )}
 
       {opponentFinishedFirst && !gameOver && opponentFinalScore !== null && (
-        <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-none">
-          <Card className="bg-red-900/90 border-red-600 p-4 text-center">
-            <div className="text-xl font-bold text-white mb-2">Target Score</div>
-            <div className="text-3xl font-bold text-yellow-400">{opponentFinalScore}</div>
-            <div className="text-sm text-zinc-300 mt-2">
-              {score > opponentFinalScore ? "Хожиж байна! 🏆" : "Илүү оноо авах хэрэгтэй!"}
+        <div className="fixed top-16 left-2 sm:top-20 sm:left-4 z-40">
+          <Card className="bg-orange-900/95 border-orange-600 p-2 sm:p-3">
+            <div className="text-xs sm:text-sm font-bold text-white mb-1">Target</div>
+            <div className="text-lg sm:text-xl font-bold text-yellow-400">{opponentFinalScore}</div>
+            <div className="text-[10px] sm:text-xs text-zinc-300 mt-1">
+              {score > opponentFinalScore ? "🏆 Хожиж байна!" : "⬆️ Илүү оноо хэрэгтэй"}
             </div>
           </Card>
         </div>
@@ -1105,7 +1118,7 @@ export default function OnlineBattlePage() {
             </div>
             <div className="flex justify-between items-baseline">
               <span className="text-[9px] sm:text-xs text-zinc-400">Time</span>
-              <span className="text-[11px] sm:text-sm font-bold">{formatTime(elapsedTime)}</span>
+              <span className="text-[11px] sm:text-sm font-bold">{formatTime()}</span>
             </div>
           </Card>
         </div>
