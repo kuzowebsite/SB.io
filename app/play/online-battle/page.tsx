@@ -431,19 +431,33 @@ export default function OnlineBattlePage() {
         // If either player surrendered, they lose
         if (surrendered) {
           iWon = false
+          console.log("[v0] I surrendered, I lose")
         } else if (opponentState.surrendered) {
           iWon = true
+          console.log("[v0] Opponent surrendered, I win")
         } else if (score !== opponentState.score) {
           // Different scores - higher score wins
           iWon = score > opponentState.score
+          console.log("[v0] Different scores:", { myScore: score, opponentScore: opponentState.score, iWon })
         } else {
-          // Same score - shorter time wins
           const myTime = finishTime ? finishTime - startTime : Number.POSITIVE_INFINITY
           const opponentTime = opponentState.finishTime
             ? opponentState.finishTime - startTime
             : Number.POSITIVE_INFINITY
+
           iWon = myTime < opponentTime
-          console.log("[v0] Score tie, comparing times:", { myTime, opponentTime, iWon })
+
+          const myTimeSeconds = Math.floor(myTime / 1000)
+          const opponentTimeSeconds = Math.floor(opponentTime / 1000)
+
+          console.log("[v0] SCORE TIE - Comparing times:", {
+            score,
+            myTime: `${Math.floor(myTimeSeconds / 60)}:${(myTimeSeconds % 60).toString().padStart(2, "0")}`,
+            opponentTime: `${Math.floor(opponentTimeSeconds / 60)}:${(opponentTimeSeconds % 60).toString().padStart(2, "0")}`,
+            myTimeMs: myTime,
+            opponentTimeMs: opponentTime,
+            iWon: iWon ? "I was faster, I WIN" : "Opponent was faster, I LOSE",
+          })
         }
 
         console.log("[v0] Battle result:", { iWon, myScore: score, opponentScore: opponentState.score })
