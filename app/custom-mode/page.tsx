@@ -124,13 +124,13 @@ export default function CustomModePage() {
 
   const updateFriendsWithPresence = (friendsList: { userId: string; name: string }[]) => {
     const presenceRefs = friendsList.map((friend) => {
-      const presenceRef = ref(realtimeDb, `presence/${friend.userId}`)
+      const presenceRef = ref(realtimeDb, `status/${friend.userId}`)
       return { friend, presenceRef }
     })
 
     presenceRefs.forEach(({ friend, presenceRef }) => {
       onValue(presenceRef, (snapshot) => {
-        const isOnline = snapshot.val()?.online || false
+        const isOnline = snapshot.val()?.state === "online"
         setFriends((prev) => {
           const existing = prev.find((f) => f.userId === friend.userId)
           if (existing) {
