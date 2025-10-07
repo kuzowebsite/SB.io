@@ -49,6 +49,7 @@ interface GameState {
   lines: number
   level: number
   gameOver: boolean
+  surrendered?: boolean
 }
 
 const TETROMINOS: Record<TetrominoType, Omit<Tetromino, "type">> = {
@@ -177,6 +178,7 @@ export default function OnlineBattlePage() {
     lines: 0,
     level: 1,
     gameOver: false,
+    surrendered: false,
   })
 
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
@@ -317,12 +319,25 @@ export default function OnlineBattlePage() {
   }, [opponentState.gameOver, opponentState.score, gameOver, opponentFinalScore])
 
   useEffect(() => {
-    // Only update battle result when:
-    // 1. Both players finished, OR
-    // 2. One player surrendered, OR
-    // 3. Opponent exceeded my score while I was waiting
+    if (opponentState.surrendered && !gameOver) {
+      console.log("[v0] Opponent surrendered - I win!")
+      setGameOver(true)
+      playGameOverSound()
+    }
+  }, [opponentState.surrendered, gameOver, playGameOverSound])
+
+  useEffect(() => {
+    if (waitingForOpponent && opponentState.gameOver) {
+      console.log("[v0] Opponent finished - clearing waiting state")
+      setWaitingForOpponent(false)
+    }
+  }, [waitingForOpponent, opponentState.gameOver])
+
+  useEffect(() => {
     const bothFinished = gameOver && opponentState.gameOver
-    const shouldUpdateResult = bothFinished || surrendered || (waitingForOpponent && opponentState.score > score)
+    const opponentSurrendered = opponentState.surrendered && !gameOver
+    const shouldUpdateResult =
+      bothFinished || surrendered || opponentSurrendered || (waitingForOpponent && opponentState.score > score)
 
     if (!shouldUpdateResult || !user || !opponentId || !db || battlePointsChange !== null) return
     if (!myProfile || !opponentProfile) {
@@ -335,15 +350,15 @@ export default function OnlineBattlePage() {
         let iWon: boolean
 
         if (surrendered) {
-          // If I surrendered, I always lose
           iWon = false
           console.log("[v0] I surrendered - I lose")
+        } else if (opponentState.surrendered) {
+          iWon = true
+          console.log("[v0] Opponent surrendered - I win")
         } else if (waitingForOpponent && opponentState.score > score) {
-          // If opponent exceeded my score while I was waiting, they win
           iWon = false
           console.log("[v0] Opponent exceeded my score while waiting - they win")
         } else {
-          // Normal case: compare scores
           iWon = score > opponentState.score
           console.log("[v0] Battle ended - comparing scores:", {
             iWon,
@@ -400,6 +415,7 @@ export default function OnlineBattlePage() {
     gameOver,
     opponentState.gameOver,
     surrendered,
+    opponentState.surrendered, // Added dependency
     waitingForOpponent,
     opponentState.score,
     user,
@@ -510,6 +526,7 @@ export default function OnlineBattlePage() {
       lines,
       level,
       gameOver,
+      surrendered,
       updatedAt: Date.now(),
     }
 
@@ -518,7 +535,7 @@ export default function OnlineBattlePage() {
     setDoc(doc(db, "battleGames", `${matchId}_${user.uid}`), gameStateData, { merge: true }).catch((err) => {
       console.error("[v0] Error syncing game state:", err)
     })
-  }, [matchId, user, board, currentPiece, position, score, lines, level, gameOver])
+  }, [matchId, user, board, currentPiece, position, score, lines, level, gameOver, surrendered])
 
   useEffect(() => {
     if (!matchId || !opponentId || !db) {
@@ -536,6 +553,7 @@ export default function OnlineBattlePage() {
             score: data.score,
             lines: data.lines,
             gameOver: data.gameOver,
+            surrendered: data.surrendered,
           })
           setOpponentState({
             board: data.board ? JSON.parse(data.board) : createEmptyBoard(),
@@ -552,6 +570,7 @@ export default function OnlineBattlePage() {
             lines: data.lines || 0,
             level: data.level || 1,
             gameOver: data.gameOver || false,
+            surrendered: data.surrendered || false,
           })
         }
       },
@@ -1167,10 +1186,16 @@ export default function OnlineBattlePage() {
           {gameOver && battleResult && battlePointsChange !== null && (
             <Card className="p-2 sm:p-4 bg-zinc-900 border-zinc-700 text-center">
               <div className="text-2xl sm:text-4xl mb-2">
-                {surrendered ? "🏳️" : battleResult === "win" ? "🏆" : "💀"}
+                {surrendered ? "🏳️" : opponentState.surrendered ? "🏆" : battleResult === "win" ? "🏆" : "💀"}
               </div>
               <h3 className="text-lg sm:text-xl font-bold mb-2">
-                {surrendered ? "Бууж өгсөн" : battleResult === "win" ? "Хожлоо!" : "Хожигдлоо!"}
+                {surrendered
+                  ? "Бууж өгсөн"
+                  : opponentState.surrendered
+                    ? "Өрсөлдөгч бууж өгсөн!"
+                    : battleResult === "win"
+                      ? "Хожлоо!"
+                      : "Хожигдлоо!"}
               </h3>
               <div
                 className={`text-xl sm:text-2xl font-bold mb-2 ${battlePointsChange > 0 ? "text-green-500" : "text-red-500"}`}
