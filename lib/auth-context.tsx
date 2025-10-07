@@ -1,69 +1,61 @@
 "use client"
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
-import { type User, onAuthStateChanged, signInAnonymously } from "firebase/auth"
-import { auth, isFirebaseConfigured } from "./firebase"
+import type React from "react"
+
+import { createContext, useContext, useEffect, useState } from "react"
+import {
+  type User,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut as firebaseSignOut,
+  updateProfile,
+} from "firebase/auth"
+import { auth } from "./firebase"
 
 interface AuthContextType {
   user: User | null
   loading: boolean
-  error: string | null
+  signIn: (email: string, password: string) => Promise<void>
+  signUp: (email: string, password: string, username: string) => Promise<void>
+  signOut: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
-  error: null,
+  signIn: async () => {},
+  signUp: async () => {},
+  signOut: async () => {},
 })
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!isFirebaseConfigured() || !auth) {
-      console.log("[v0] Firebase not configured, skipping authentication")
-      setError("Firebase тохиргоо хийгдээгүй байна")
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setUser(user)
       setLoading(false)
-      return
-    }
+    })
 
-    const unsubscribe = onAuthStateChanged(
-      auth,
-      async (user) => {
-        if (!user) {
-          try {
-            console.log("[v0] Signing in anonymously...")
-            const result = await signInAnonymously(auth)
-            setUser(result.user)
-            setError(null)
-            console.log("[v0] Anonymous sign-in successful")
-          } catch (error) {
-            console.error("[v0] Error signing in anonymously:", error)
-            setError("Нэвтрэх үед алдаа гарлаа")
-            setUser(null)
-          }
-        } else {
-          console.log("User authenticated:", user.uid)
-          setUser(user)
-          setError(null)
-        }
-        setLoading(false)
-      },
-      (error) => {
-        console.error("Auth state change error:", error)
-        setError("Нэвтрэх үед алдаа гарлаа")
-        setLoading(false)
-      },
-    )
-
-    return () => unsubscribe()
+    return unsubscribe
   }, [])
 
-  return <AuthContext.Provider value={{ user, loading, error }}>{children}</AuthContext.Provider>
+  const signIn = async (email: string, password: string) => {
+    await signInWithEmailAndPassword(auth, email, password)
+  }
+
+  const signUp = async (email: string, password: string, username: string) => {
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password)
+    await updateProfile(userCredential.user, { displayName: username })
+  }
+
+  const signOut = async () => {
+    await firebaseSignOut(auth)
+  }
+
+  return <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut }}>{children}</AuthContext.Provider>
 }
 
-export function useAuth() {
-  return useContext(AuthContext)
-}
+export const useAuth = () => useContext(AuthContext)
