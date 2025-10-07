@@ -112,11 +112,11 @@ export function EditProfileModal({ isOpen, onClose, user, profile, onProfileUpda
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-      <div className="w-full max-w-md bg-[#0a0a0a] border border-primary/30 rounded-lg shadow-2xl shadow-primary/20 overflow-hidden">
+      <div className="translate-y-66 w-full max-w-md bg-[#0a0a0a] border border-primary/30 rounded-lg shadow-2xl shadow-primary/20 overflow-hidden">
         {/* Header */}
         <div className="p-4 border-b border-primary/20 bg-gradient-to-r from-primary/10 to-transparent">
           <div className="flex items-center justify-between">
-            <h2 className="text-xl font-bold">Мэдээлэл засах</h2>
+            <h2 className="text-zinc-300 text-xl font-bold">Мэдээлэл засах</h2>
             <button
               onClick={onClose}
               className="w-8 h-8 rounded-lg hover:bg-primary/10 flex items-center justify-center transition-colors"
@@ -132,7 +132,7 @@ export function EditProfileModal({ isOpen, onClose, user, profile, onProfileUpda
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
           {/* Profile Picture */}
           <div className="flex flex-col items-center gap-4">
-            <Avatar className="w-24 h-24 border-4 border-primary">
+            <Avatar className="w-24 h-24 border-4 border-primary animate-pulse">
               <AvatarImage src={previewUrl || profile?.profilePictureURL || user.photoURL || undefined} />
               <AvatarFallback className="bg-primary/20 text-primary font-bold text-2xl">
                 {(userName || user.email || "U")[0].toUpperCase()}
@@ -143,7 +143,7 @@ export function EditProfileModal({ isOpen, onClose, user, profile, onProfileUpda
                 htmlFor="profile-image"
                 className="cursor-pointer px-4 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg text-sm font-medium transition-colors inline-block"
               >
-                Зураг солих
+               <div className="text-zinc-300">Зураг солих</div>
               </Label>
               <Input id="profile-image" type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
             </div>
@@ -151,7 +151,7 @@ export function EditProfileModal({ isOpen, onClose, user, profile, onProfileUpda
 
           {/* Username */}
           <div className="space-y-2">
-            <Label htmlFor="username" className="text-sm font-medium">
+            <Label htmlFor="username" className="text-zinc-400 text-sm font-medium">
               Хэрэглэгчийн нэр
             </Label>
             <Input
@@ -159,13 +159,13 @@ export function EditProfileModal({ isOpen, onClose, user, profile, onProfileUpda
               type="text"
               value={userName}
               onChange={(e) => setUserName(e.target.value)}
-              className="bg-muted/10 border-primary/20 focus:border-primary"
+              className="text-zinc-600 bg-muted/10 border-primary/20 focus:border-primary"
               required
             />
           </div>
 
           {/* New Password */}
-          <div className="space-y-2">
+          <div className="space-y-2 text-zinc-400">
             <Label htmlFor="new-password" className="text-sm font-medium">
               Шинэ нууц үг (хоосон орхивол өөрчлөгдөхгүй)
             </Label>
@@ -174,7 +174,7 @@ export function EditProfileModal({ isOpen, onClose, user, profile, onProfileUpda
               type="password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
-              className="bg-muted/10 border-primary/20 focus:border-primary"
+              className="text-zinc-600 bg-muted/10 border-primary/20 focus:border-primary"
               placeholder="••••••"
             />
           </div>
@@ -182,7 +182,7 @@ export function EditProfileModal({ isOpen, onClose, user, profile, onProfileUpda
           {/* Confirm Password */}
           {newPassword && (
             <div className="space-y-2">
-              <Label htmlFor="confirm-password" className="text-sm font-medium">
+              <Label htmlFor="confirm-password" className="text-zinc-400 text-sm font-medium">
                 Нууц үг баталгаажуулах
               </Label>
               <Input
@@ -190,7 +190,7 @@ export function EditProfileModal({ isOpen, onClose, user, profile, onProfileUpda
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                className="bg-muted/10 border-primary/20 focus:border-primary"
+                className="text-zinc-400 bg-muted/10 border-primary/20 focus:border-primary"
                 placeholder="••••••"
               />
             </div>
@@ -206,14 +206,14 @@ export function EditProfileModal({ isOpen, onClose, user, profile, onProfileUpda
               type="button"
               variant="outline"
               onClick={onClose}
-              className="flex-1 border-primary/20 hover:bg-primary/10 bg-transparent"
+              className="text-zinc-300 flex-1 bg-primary hover:bg-primary hover:text-zinc-400 text-primary-foreground font-semibold"
               disabled={loading}
             >
               Болих
             </Button>
             <Button
               type="submit"
-              className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
+              className="text-zinc-300 flex-1 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
               disabled={loading}
             >
               {loading ? "Хадгалж байна..." : "Хадгалах"}
