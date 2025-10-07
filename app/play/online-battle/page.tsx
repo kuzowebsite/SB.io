@@ -1214,6 +1214,48 @@ export default function OnlineBattlePage() {
               ))}
             </div>
           </Card>
+
+          <Card className="p-1 sm:p-2 bg-zinc-900 border-zinc-800">
+            <h2 className="text-[10px] sm:text-xs lg:text-sm font-bold mb-1 sm:mb-2 text-white">
+              {opponentName || "Өрсөлдөгч"}
+            </h2>
+            {opponentRank && opponentProfile && (
+              <div className="mb-1 pb-1 border-b border-zinc-700">
+                <div className="text-[9px] font-bold truncate" style={{ color: opponentRank.color }}>
+                  {opponentRank.name}
+                </div>
+                <div className="text-[8px] text-zinc-400">{opponentProfile.battlePoints} BP</div>
+              </div>
+            )}
+            <div className="bg-black rounded border border-zinc-800 p-0.5 sm:p-1 mb-1 sm:mb-2 flex items-center justify-center">
+              <canvas
+                ref={opponentCanvasRef}
+                width={BOARD_WIDTH * OPPONENT_BLOCK_SIZE}
+                height={BOARD_HEIGHT * OPPONENT_BLOCK_SIZE}
+                className="w-full h-auto"
+                style={{ imageRendering: "pixelated" }}
+              />
+            </div>
+            <div className="space-y-0.5 sm:space-y-1 text-white">
+              <div className="flex justify-between items-baseline">
+                <span className="text-[9px] sm:text-xs text-zinc-400">Score</span>
+                <span className="text-[11px] sm:text-sm font-bold">{opponentState.score}</span>
+              </div>
+              <div className="flex justify-between items-baseline">
+                <span className="text-[9px] sm:text-xs text-zinc-400">Lines</span>
+                <span className="text-[11px] sm:text-sm font-bold">{opponentState.lines}</span>
+              </div>
+              <div className="flex justify-between items-baseline">
+                <span className="text-[9px] sm:text-xs text-zinc-400">Level</span>
+                <span className="text-[11px] sm:text-sm font-bold">{opponentState.level}</span>
+              </div>
+              {opponentState.gameOver && (
+                <div className="text-[10px] sm:text-xs text-red-500 font-bold text-center mt-1">
+                  {opponentState.surrendered ? "Бууж өгсөн" : "Дууссан"}
+                </div>
+              )}
+            </div>
+          </Card>
         </div>
       </div>
     </div>
