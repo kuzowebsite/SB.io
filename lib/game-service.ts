@@ -444,7 +444,7 @@ export async function updateBattleResult(
     await setDoc(
       winnerRef,
       {
-        battlePoints: (winnerData.battlePoints || 1000) + winnerChange,
+        battlePoints: Math.max(0, (winnerData.battlePoints || 1000) + winnerChange),
         battleWins: (winnerData.battleWins || 0) + 1,
         updatedAt: new Date(),
       },
@@ -455,7 +455,7 @@ export async function updateBattleResult(
     await setDoc(
       loserRef,
       {
-        battlePoints: Math.max(0, (loserData.battlePoints || 1000) + loserChange), // Don't go below 0
+        battlePoints: Math.max(0, (loserData.battlePoints || 1000) + loserChange),
         battleLosses: (loserData.battleLosses || 0) + 1,
         updatedAt: new Date(),
       },
@@ -487,7 +487,7 @@ export async function searchUsers(searchTerm: string): Promise<UserProfile[]> {
 
     return users.slice(0, 20) // Limit to 20 results
   } catch (error) {
-    console.error("Error searching users:", error)
+    console.error("[v0] Error searching users:", error)
     return []
   }
 }
