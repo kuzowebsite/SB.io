@@ -39,6 +39,9 @@ export interface LeaderboardEntry {
   totalXP: number
   profilePictureURL?: string
   date: Date
+  battlePoints?: number
+  battleWins?: number
+  battleLosses?: number
 }
 
 export interface UserProfile {
@@ -343,6 +346,9 @@ export async function getBattleRankLeaderboard(limitCount = 20): Promise<Leaderb
         totalXP: data.totalXP,
         profilePictureURL: data.profilePictureURL,
         date: data.updatedAt,
+        battlePoints: data.battlePoints || 1000,
+        battleWins: data.battleWins || 0,
+        battleLosses: data.battleLosses || 0,
       })
     })
 
@@ -481,7 +487,7 @@ export async function searchUsers(searchTerm: string): Promise<UserProfile[]> {
 
     return users.slice(0, 20) // Limit to 20 results
   } catch (error) {
-    console.error("[v0] Error searching users:", error)
+    console.error("Error searching users:", error)
     return []
   }
 }
