@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { getUserProfile, type UserProfile } from "@/lib/game-service"
-import { getRankByScore, getXPProgress, type Rank } from "@/lib/rank-system"
+import { getRankByScore, getXPProgress, type Rank, getRankByBattlePoints } from "@/lib/rank-system"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { EditProfileModal } from "./edit-profile-modal"
 
@@ -46,6 +46,7 @@ export function ProfileDropdown() {
   if (!user) return null
 
   const currentRank: Rank = profile ? getRankByScore(profile.bestScore) : getRankByScore(0)
+  const battleRank = profile ? getRankByBattlePoints(profile.battlePoints || 0) : getRankByBattlePoints(0)
   const levelProgress = profile ? getXPProgress(profile.totalXP) : getXPProgress(0)
 
   return (
@@ -87,14 +88,32 @@ export function ProfileDropdown() {
               <div className="flex-1 min-w-0">
                 <div className="font-bold text-muted-foreground">{user.displayName || user.email}</div>
 
-                {/* Rank with Image */}
+                {/* Solo Rank with Image and Best Score */}
                 <div className="text-xs animate-pulse font-semibold truncate flex items-center gap-1 mt-1">
+                  <span className="text-muted-foreground/60 text-[10px]">Solo:</span>
                   <img
-                    src={currentRank.icon || "/placeholder.svg"} // /public/rankavatarimage/ доторх зураг
+                    src={currentRank.icon || "/placeholder.svg"}
                     alt={currentRank.name}
                     className="w-4 h-4 rounded-full object-cover"
                   />
                   <span style={{ color: currentRank.color }}>{currentRank.name}</span>
+                  <span className="text-muted-foreground/60 text-[10px]">
+                    ({profile?.bestScore?.toLocaleString() || 0})
+                  </span>
+                </div>
+
+                {/* Battle Rank display below Solo Rank */}
+                <div className="text-xs animate-pulse font-semibold truncate flex items-center gap-1 mt-1">
+                  <span className="text-muted-foreground/60 text-[10px]">Battle:</span>
+                  <img
+                    src={battleRank.icon || "/placeholder.svg"}
+                    alt={battleRank.name}
+                    className="w-4 h-4 rounded-full object-cover"
+                  />
+                  <span style={{ color: battleRank.color }}>{battleRank.name}</span>
+                  <span className="text-muted-foreground/60 text-[10px]">
+                    ({profile?.battlePoints?.toLocaleString() || 0} pts)
+                  </span>
                 </div>
               </div>
             </div>
@@ -148,9 +167,9 @@ export function ProfileDropdown() {
           {/* Stats */}
           <div className="p-4 grid grid-cols-2 gap-3 border-b border-primary/20">
             <div className="bg-secondary/5 rounded-lg p-3">
-              <div className="text-xs text-muted-foreground mb-1">Best Score</div>
+              <div className="text-xs text-muted-foreground mb-1">Тоглосон</div>
               <div className="text-lg font-bold animate-pulse text-muted-foreground">
-                {profile?.bestScore.toLocaleString() || 0}
+                {profile?.totalGames?.toLocaleString() || 0}
               </div>
             </div>
             <div className="bg-secondary/5 rounded-lg p-3">
