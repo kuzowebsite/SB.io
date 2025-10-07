@@ -1,520 +1,338 @@
+"use client"
+
+import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import { Card } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { useAuth } from "@/lib/auth-context"
 import { db } from "@/lib/firebase"
 import {
   collection,
   addDoc,
   query,
-  orderBy,
-  limit,
-  getDocs,
   where,
+  onSnapshot,
+  updateDoc,
   doc,
-  setDoc,
-  getDoc,
   deleteDoc,
+  getDocs,
+  serverTimestamp,
 } from "firebase/firestore"
-import { ref, onValue, onDisconnect, set, serverTimestamp, get } from "firebase/database"
-import { realtimeDb } from "@/lib/firebase"
-import { calculateXPFromScore } from "@/lib/rank-system"
 
-export interface GameScore {
-  userId: string
-  userName: string
+const BLOCK_SIZE = 20
+const BOARD_WIDTH = 10
+const BOARD_HEIGHT = 20
+
+type TetrominoType = "I" | "O" | "T" | "S" | "Z" | "J" | "L"
+
+interface Position {
+  x: number
+  y: number
+}
+
+interface Tetromino {
+  shape: number[][]
+  color: string
+  type: TetrominoType
+}
+
+interface GameState {
+  board: number[][]
   score: number
   lines: number
   level: number
-  pieces: number
-  time: number
-  xp: number
-  date: Date
+  gameOver: boolean
 }
 
-export interface LeaderboardEntry {
+interface Player {
   id: string
-  userId: string
-  userName: string
-  bestScore: number
-  totalScore: number
-  lines: number
-  totalGames: number
-  totalXP: number
-  profilePictureURL?: string
-  date: Date
+  name: string
+  state: GameState
 }
 
-export interface UserProfile {
-  userId: string
-  userName: string
-  profilePictureURL?: string
-  totalXP: number
-  totalGames: number
-  totalScore: number
-  bestScore: number
-  totalLines: number
-  battlePoints: number // Added battle points for online battles (ELO-style rating)
-  battleWins: number // Added battle wins counter
-  battleLosses: number // Added battle losses counter
-  createdAt: Date
-  updatedAt: Date
+const TETROMINOS: Record<TetrominoType, Omit<Tetromino, "type">> = {
+  I: {
+    shape: [
+      [0, 0, 0, 0],
+      [1, 1, 1, 1],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+    ],
+    color: "#00f0f0",
+  },
+  O: {
+    shape: [
+      [1, 1],
+      [1, 1],
+    ],
+    color: "#f0f000",
+  },
+  T: {
+    shape: [
+      [0, 1, 0],
+      [1, 1, 1],
+      [0, 0, 0],
+    ],
+    color: "#a000f0",
+  },
+  S: {
+    shape: [
+      [0, 1, 1],
+      [1, 1, 0],
+      [0, 0, 0],
+    ],
+    color: "#00f000",
+  },
+  Z: {
+    shape: [
+      [1, 1, 0],
+      [0, 1, 1],
+      [0, 0, 0],
+    ],
+    color: "#f00000",
+  },
+  J: {
+    shape: [
+      [1, 0, 0],
+      [1, 1, 1],
+      [0, 0, 0],
+    ],
+    color: "#0000f0",
+  },
+  L: {
+    shape: [
+      [0, 0, 1],
+      [1, 1, 1],
+      [0, 0, 0],
+    ],
+    color: "#f0a000",
+  },
 }
 
-export async function saveGameScore(gameData: GameScore): Promise<void> {
-  try {
-    // Calculate XP for this game
-    const xp = calculateXPFromScore(gameData.score, gameData.lines, gameData.level)
-
-    // Save the game score
-    await addDoc(collection(db, "scores"), {
-      ...gameData,
-      xp,
-      date: new Date(),
-    })
-
-    // Update user profile
-    await updateUserProfile(gameData.userId, gameData.userName, xp, gameData.score, gameData.lines)
-  } catch (error) {
-    console.error("[v0] Error saving game score:", error)
-    throw error
-  }
+function createEmptyBoard(): number[][] {
+  return Array.from({ length: BOARD_HEIGHT }, () => Array(BOARD_WIDTH).fill(0))
 }
 
-async function updateUserProfile(
-  userId: string,
-  userName: string,
-  xpGained: number,
-  score: number,
-  lines: number,
-): Promise<void> {
-  const userRef = doc(db, "users", userId)
-
-  try {
-    const userDoc = await getDoc(userRef)
-
-    if (userDoc.exists()) {
-      const userData = userDoc.data() as UserProfile
-      await setDoc(userRef, {
-        ...userData,
-        totalXP: userData.totalXP + xpGained,
-        totalGames: userData.totalGames + 1,
-        totalScore: userData.totalScore + score,
-        bestScore: Math.max(userData.bestScore, score),
-        totalLines: userData.totalLines + lines,
-        updatedAt: new Date(),
-      })
-    } else {
-      // Create new user profile
-      await setDoc(userRef, {
-        userId,
-        userName,
-        totalXP: xpGained,
-        totalGames: 1,
-        totalScore: score,
-        bestScore: score,
-        totalLines: lines,
-        battlePoints: 1000, // Initialize battle points at 1000 (like ELO)
-        battleWins: 0, // Initialize battle wins
-        battleLosses: 0, // Initialize battle losses
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-    }
-  } catch (error) {
-    console.error("[v0] Error updating user profile:", error)
-    throw error
-  }
+function getRandomTetromino(): Tetromino {
+  const types: TetrominoType[] = ["I", "O", "T", "S", "Z", "J", "L"]
+  const type = types[Math.floor(Math.random() * types.length)]
+  return { ...TETROMINOS[type], type }
 }
 
-export async function getTopScores(limitCount = 10): Promise<LeaderboardEntry[]> {
-  try {
-    const q = query(collection(db, "users"), orderBy("bestScore", "desc"), limit(limitCount))
-
-    const querySnapshot = await getDocs(q)
-    const scores: LeaderboardEntry[] = []
-
-    querySnapshot.forEach((docSnap) => {
-      const data = docSnap.data() as UserProfile
-      scores.push({
-        id: docSnap.id,
-        userId: data.userId,
-        userName: data.userName,
-        bestScore: data.bestScore,
-        totalScore: data.totalScore,
-        lines: data.totalLines,
-        totalGames: data.totalGames,
-        totalXP: data.totalXP,
-        profilePictureURL: data.profilePictureURL,
-        date: data.updatedAt,
-      })
-    })
-
-    return scores
-  } catch (error) {
-    console.error("[v0] Error fetching top scores:", error)
-    return []
-  }
-}
-
-export async function getUserScores(userId: string, limitCount = 10): Promise<LeaderboardEntry[]> {
-  try {
-    const q = query(
-      collection(db, "scores"),
-      where("userId", "==", userId),
-      orderBy("score", "desc"),
-      limit(limitCount),
-    )
-
-    const querySnapshot = await getDocs(q)
-    const scores: LeaderboardEntry[] = []
-
-    querySnapshot.forEach((doc) => {
-      const data = doc.data()
-      scores.push({
-        id: doc.id,
-        userId: data.userId,
-        userName: data.userName,
-        bestScore: data.score, // Placeholder for bestScore, actual value will be fetched later if needed
-        totalScore: data.score,
-        lines: data.lines,
-        totalGames: data.score,
-        totalXP: data.xp,
-        profilePictureURL: data.score, // Placeholder for profilePictureURL, actual value will be fetched later if needed
-        date: data.date.toDate(),
-      })
-    })
-
-    return scores
-  } catch (error) {
-    console.error("[v0] Error fetching user scores:", error)
-    return []
-  }
-}
-
-export async function getTotalPlayers(): Promise<number> {
-  try {
-    const querySnapshot = await getDocs(collection(db, "users"))
-    return querySnapshot.size
-  } catch (error) {
-    console.error("[v0] Error fetching total players:", error)
-    return 0
-  }
-}
-
-export async function getTotalGames(): Promise<number> {
-  try {
-    const querySnapshot = await getDocs(collection(db, "scores"))
-    return querySnapshot.size
-  } catch (error) {
-    console.error("[v0] Error fetching total games:", error)
-    return 0
-  }
-}
-
-export async function getUserProfile(userId: string): Promise<UserProfile | null> {
-  try {
-    const userRef = doc(db, "users", userId)
-    const userDoc = await getDoc(userRef)
-
-    if (userDoc.exists()) {
-      return userDoc.data() as UserProfile
-    }
-    return null
-  } catch (error) {
-    console.error("[v0] Error fetching user profile:", error)
-    return null
-  }
-}
-
-export async function updateUserProfileData(
-  userId: string,
-  updates: Partial<Pick<UserProfile, "userName" | "profilePictureURL">>,
-): Promise<void> {
-  const userRef = doc(db, "users", userId)
-
-  try {
-    const userDoc = await getDoc(userRef)
-
-    if (userDoc.exists()) {
-      await setDoc(
-        userRef,
-        {
-          ...updates,
-          updatedAt: new Date(),
-        },
-        { merge: true },
-      )
-    }
-  } catch (error) {
-    console.error("[v0] Error updating user profile data:", error)
-    throw error
-  }
-}
-
-export function trackUserPresence(userId: string, userName: string): () => void {
-  if (typeof window === "undefined") return () => {}
-
-  const userStatusRef = ref(realtimeDb, `status/${userId}`)
-  const isOnlineData = {
-    state: "online",
-    userName,
-    lastChanged: serverTimestamp(),
-  }
-
-  const isOfflineData = {
-    state: "offline",
-    userName,
-    lastChanged: serverTimestamp(),
-  }
-
-  // Set user as online
-  set(userStatusRef, isOnlineData)
-
-  // Set user as offline when they disconnect
-  onDisconnect(userStatusRef).set(isOfflineData)
-
-  // Cleanup function
-  return () => {
-    set(userStatusRef, isOfflineData)
-  }
-}
-
-export async function getOnlinePlayers(): Promise<number> {
-  try {
-    const statusRef = ref(realtimeDb, "status")
-    const snapshot = await get(statusRef)
-
-    if (!snapshot.exists()) {
-      return 0
-    }
-
-    let onlineCount = 0
-    snapshot.forEach((childSnapshot) => {
-      const status = childSnapshot.val()
-      if (status.state === "online") {
-        onlineCount++
-      }
-    })
-
-    return onlineCount
-  } catch (error) {
-    console.error("[v0] Error fetching online players:", error)
-    return 0
-  }
-}
-
-export function subscribeToOnlinePlayers(callback: (count: number) => void): () => void {
-  const statusRef = ref(realtimeDb, "status")
-
-  const unsubscribe = onValue(statusRef, (snapshot) => {
-    if (!snapshot.exists()) {
-      callback(0)
-      return
-    }
-
-    let onlineCount = 0
-    snapshot.forEach((childSnapshot) => {
-      const status = childSnapshot.val()
-      if (status.state === "online") {
-        onlineCount++
-      }
-    })
-
-    callback(onlineCount)
+export default function OnlineBattlePage() {
+  const router = useRouter()
+  const { user } = useAuth()
+  const [matchmaking, setMatchmaking] = useState(true)
+  const [matchId, setMatchId] = useState<string | null>(null)
+  const [opponent, setOpponent] = useState<Player | null>(null)
+  const [myGameState, setMyGameState] = useState<GameState>({
+    board: createEmptyBoard(),
+    score: 0,
+    lines: 0,
+    level: 1,
+    gameOver: false,
   })
 
-  return unsubscribe
-}
+  // Matchmaking logic
+  useEffect(() => {
+    if (!user || !matchmaking) return
 
-export async function getBattleRankLeaderboard(limitCount = 20): Promise<LeaderboardEntry[]> {
-  try {
-    const q = query(collection(db, "users"), orderBy("battlePoints", "desc"), limit(limitCount))
+    let matchmakingDoc: string | null = null
+    let unsubscribe: (() => void) | null = null
 
-    const querySnapshot = await getDocs(q)
-    const scores: LeaderboardEntry[] = []
+    const findMatch = async () => {
+      // Look for waiting players - filter by status only, then check playerId on client
+      const q = query(collection(db, "matchmaking"), where("status", "==", "waiting"))
 
-    querySnapshot.forEach((docSnap) => {
-      const data = docSnap.data() as UserProfile
-      scores.push({
-        id: docSnap.id,
-        userId: data.userId,
-        userName: data.userName,
-        bestScore: data.bestScore,
-        totalScore: data.totalScore,
-        lines: data.totalLines,
-        totalGames: data.totalGames,
-        totalXP: data.totalXP,
-        profilePictureURL: data.profilePictureURL,
-        date: data.updatedAt,
-      })
-    })
+      const snapshot = await getDocs(q)
 
-    return scores
-  } catch (error) {
-    console.error("[v0] Error fetching battle rank leaderboard:", error)
-    return []
-  }
-}
+      // Filter out own matches on the client side
+      const availableMatches = snapshot.docs.filter((doc) => doc.data().playerId !== user.uid)
 
-export function calculateBattlePointsChange(
-  winner: {
-    battlePoints: number
-    score: number
-    lines: number
-    timeAlive: number
-  },
-  loser: {
-    battlePoints: number
-    score: number
-    lines: number
-    timeAlive: number
-  },
-): { winnerChange: number; loserChange: number } {
-  // Base K-factor (maximum points that can be gained/lost)
-  const K = 32
+      if (availableMatches.length > 0) {
+        // Join existing match
+        const waitingMatch = availableMatches[0]
+        const matchData = waitingMatch.data()
 
-  // Calculate expected win probability using ELO formula
-  const expectedWinner = 1 / (1 + Math.pow(10, (loser.battlePoints - winner.battlePoints) / 400))
-  const expectedLoser = 1 - expectedWinner
+        await updateDoc(doc(db, "matchmaking", waitingMatch.id), {
+          player2Id: user.uid,
+          player2Name: user.displayName || user.email || "Player 2",
+          status: "matched",
+        })
 
-  // Base points change
-  let winnerChange = Math.round(K * (1 - expectedWinner))
-  let loserChange = Math.round(K * (0 - expectedLoser))
+        setMatchId(waitingMatch.id)
+        setOpponent({
+          id: matchData.playerId,
+          name: matchData.playerName,
+          state: {
+            board: createEmptyBoard(),
+            score: 0,
+            lines: 0,
+            level: 1,
+            gameOver: false,
+          },
+        })
+        setMatchmaking(false)
+      } else {
+        // Create new match
+        const docRef = await addDoc(collection(db, "matchmaking"), {
+          playerId: user.uid,
+          playerName: user.displayName || user.email || "Player 1",
+          player2Id: null,
+          player2Name: null,
+          status: "waiting",
+          createdAt: serverTimestamp(),
+        })
 
-  // Performance bonus for winner (based on how well they played)
-  const performanceBonus = Math.min(10, Math.floor((winner.score - loser.score) / 1000))
-  winnerChange += performanceBonus
+        matchmakingDoc = docRef.id
 
-  // Reduce loss if loser performed well (lasted long, scored points)
-  const loserPerformance = Math.min(5, Math.floor(loser.timeAlive / 30)) // 1 point per 30 seconds
-  loserChange += loserPerformance // Make loss less severe
-
-  // Ensure minimum changes
-  winnerChange = Math.max(10, winnerChange)
-  loserChange = Math.max(-25, loserChange)
-
-  return { winnerChange, loserChange }
-}
-
-export async function updateBattleResult(
-  winnerId: string,
-  loserId: string,
-  battleData: {
-    winnerScore: number
-    winnerLines: number
-    winnerTime: number
-    loserScore: number
-    loserLines: number
-    loserTime: number
-  },
-): Promise<void> {
-  try {
-    const winnerRef = doc(db, "users", winnerId)
-    const loserRef = doc(db, "users", loserId)
-
-    const [winnerDoc, loserDoc] = await Promise.all([getDoc(winnerRef), getDoc(loserRef)])
-
-    if (!winnerDoc.exists() || !loserDoc.exists()) {
-      throw new Error("User profiles not found")
+        // Listen for opponent
+        unsubscribe = onSnapshot(doc(db, "matchmaking", docRef.id), (doc) => {
+          const data = doc.data()
+          if (data && data.status === "matched" && data.player2Id) {
+            setMatchId(docRef.id)
+            setOpponent({
+              id: data.player2Id,
+              name: data.player2Name,
+              state: {
+                board: createEmptyBoard(),
+                score: 0,
+                lines: 0,
+                level: 1,
+                gameOver: false,
+              },
+            })
+            setMatchmaking(false)
+          }
+        })
+      }
     }
 
-    const winnerData = winnerDoc.data() as UserProfile
-    const loserData = loserDoc.data() as UserProfile
+    findMatch()
 
-    // Calculate points change
-    const { winnerChange, loserChange } = calculateBattlePointsChange(
-      {
-        battlePoints: winnerData.battlePoints || 1000,
-        score: battleData.winnerScore,
-        lines: battleData.winnerLines,
-        timeAlive: battleData.winnerTime,
-      },
-      {
-        battlePoints: loserData.battlePoints || 1000,
-        score: battleData.loserScore,
-        lines: battleData.loserLines,
-        timeAlive: battleData.loserTime,
-      },
-    )
+    return () => {
+      if (unsubscribe) unsubscribe()
+      if (matchmakingDoc) {
+        deleteDoc(doc(db, "matchmaking", matchmakingDoc)).catch(console.error)
+      }
+    }
+  }, [user, matchmaking])
 
-    // Update winner
-    await setDoc(
-      winnerRef,
-      {
-        battlePoints: (winnerData.battlePoints || 1000) + winnerChange,
-        battleWins: (winnerData.battleWins || 0) + 1,
-        updatedAt: new Date(),
-      },
-      { merge: true },
-    )
+  // Listen to opponent's game state
+  useEffect(() => {
+    if (!matchId || !opponent) return
 
-    // Update loser
-    await setDoc(
-      loserRef,
-      {
-        battlePoints: Math.max(0, (loserData.battlePoints || 1000) + loserChange), // Don't go below 0
-        battleLosses: (loserData.battleLosses || 0) + 1,
-        updatedAt: new Date(),
-      },
-      { merge: true },
-    )
-  } catch (error) {
-    console.error("[v0] Error updating battle result:", error)
-    throw error
-  }
-}
-
-export async function searchUsers(searchTerm: string): Promise<UserProfile[]> {
-  try {
-    if (!searchTerm.trim()) return []
-
-    const usersRef = collection(db, "users")
-    const querySnapshot = await getDocs(usersRef)
-
-    const users: UserProfile[] = []
-    querySnapshot.forEach((doc) => {
-      const data = doc.data() as UserProfile
-      const userName = data.userName?.toLowerCase() || ""
-      const search = searchTerm.toLowerCase()
-
-      if (userName.includes(search)) {
-        users.push(data)
+    const unsubscribe = onSnapshot(doc(db, "matches", matchId), (doc) => {
+      const data = doc.data()
+      if (data) {
+        const opponentState = data[opponent.id]
+        if (opponentState) {
+          setOpponent((prev) => (prev ? { ...prev, state: opponentState } : null))
+        }
       }
     })
 
-    return users.slice(0, 20) // Limit to 20 results
-  } catch (error) {
-    console.error("[v0] Error searching users:", error)
-    return []
+    return () => unsubscribe()
+  }, [matchId, opponent])
+
+  if (matchmaking) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <Card className="bg-zinc-900 border-zinc-700 p-12 text-center">
+          <div className="text-6xl mb-6 animate-bounce">⚔️</div>
+          <h2 className="text-3xl font-bold mb-4">Өрсөлдөгч хайж байна...</h2>
+          <div className="flex justify-center gap-2 mb-6">
+            <div className="w-3 h-3 bg-red-600 rounded-full animate-pulse" />
+            <div className="w-3 h-3 bg-red-800 rounded-full animate-pulse delay-200" />
+            <div className="w-3 h-3 bg-red-400 rounded-full animate-pulse delay-200" />
+          </div>
+          <Button onClick={() => router.push("/play")} variant="outline" className="text-muted-foreground border-zinc-700">
+            Цуцлах
+          </Button>
+        </Card>
+      </div>
+    )
   }
+
+  return (
+    <div className="min-h-screen bg-black text-white flex items-center justify-center p-4">
+      <div className="max-w-7xl w-full">
+        {/* Score Header */}
+        <div className="text-center mb-8">
+          <div className="bg-zinc-900 border-2 border-red-600 rounded-lg p-4 inline-block">
+            <div className="flex items-center gap-8">
+              <div className="text-2xl font-bold">{user?.displayName || "You"}</div>
+              <div className="text-4xl font-bold">
+                <span className="text-blue-400">{myGameState.score}</span>
+                <span className="mx-4">-</span>
+                <span className="text-red-400">{opponent?.state.score || 0}</span>
+              </div>
+              <div className="text-2xl font-bold">{opponent?.name || "Opponent"}</div>
+            </div>
+            <div className="text-sm text-zinc-400 mt-2">VERSUS FT1v2</div>
+          </div>
+        </div>
+
+        {/* Game Boards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          {/* My Board */}
+          <Card className="bg-zinc-900 border-zinc-700 p-6">
+            <h3 className="text-xl font-bold mb-4 text-center">{user?.displayName || "You"}</h3>
+            <div
+              className="bg-black border-2 border-zinc-800 rounded"
+              style={{ width: BOARD_WIDTH * BLOCK_SIZE, height: BOARD_HEIGHT * BLOCK_SIZE, margin: "0 auto" }}
+            >
+              {/* Game board rendering would go here */}
+            </div>
+            <div className="mt-4 grid grid-cols-3 gap-4 text-center">
+              <div>
+                <div className="text-xs text-zinc-400">SCORE</div>
+                <div className="text-2xl font-bold">{myGameState.score}</div>
+              </div>
+              <div>
+                <div className="text-xs text-zinc-400">LINES</div>
+                <div className="text-2xl font-bold">{myGameState.lines}</div>
+              </div>
+              <div>
+                <div className="text-xs text-zinc-400">LEVEL</div>
+                <div className="text-2xl font-bold">{myGameState.level}</div>
+              </div>
+            </div>
+          </Card>
+
+          {/* Opponent Board */}
+          <Card className="bg-zinc-900 border-zinc-700 p-6">
+            <h3 className="text-xl font-bold mb-4 text-center">{opponent?.name || "Opponent"}</h3>
+            <div
+              className="bg-black border-2 border-zinc-800 rounded"
+              style={{ width: BOARD_WIDTH * BLOCK_SIZE, height: BOARD_HEIGHT * BLOCK_SIZE, margin: "0 auto" }}
+            >
+              {/* Opponent board rendering would go here */}
+            </div>
+            <div className="mt-4 grid grid-cols-3 gap-4 text-center">
+              <div>
+                <div className="text-xs text-zinc-400">SCORE</div>
+                <div className="text-2xl font-bold">{opponent?.state.score || 0}</div>
+              </div>
+              <div>
+                <div className="text-xs text-zinc-400">LINES</div>
+                <div className="text-2xl font-bold">{opponent?.state.lines || 0}</div>
+              </div>
+              <div>
+                <div className="text-xs text-zinc-400">LEVEL</div>
+                <div className="text-2xl font-bold">{opponent?.state.level || 1}</div>
+              </div>
+            </div>
+          </Card>
+        </div>
+
+        <div className="text-center mt-8">
+          <Button onClick={() => router.push("/play")} variant="outline" className="text-white border-zinc-700">
+            ← Буцах
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
-export async function deleteFriend(userId: string, friendId: string): Promise<void> {
-  try {
-    // Find and delete the friend request document
-    const q1 = query(
-      collection(db, "friendRequests"),
-      where("fromId", "==", userId),
-      where("toId", "==", friendId),
-      where("status", "==", "accepted"),
-    )
-    const q2 = query(
-      collection(db, "friendRequests"),
-      where("fromId", "==", friendId),
-      where("toId", "==", userId),
-      where("status", "==", "accepted"),
-    )
-
-    const [snapshot1, snapshot2] = await Promise.all([getDocs(q1), getDocs(q2)])
-
-    const deletePromises: Promise<void>[] = []
-    snapshot1.forEach((doc) => {
-      deletePromises.push(deleteDoc(doc.ref))
-    })
-    snapshot2.forEach((doc) => {
-      deletePromises.push(deleteDoc(doc.ref))
-    })
-
-    await Promise.all(deletePromises)
-  } catch (error) {
-    console.error("Error deleting friend:", error)
-    throw error
-  }
-}
