@@ -256,3 +256,145 @@ export function calculateXPFromScore(score: number, lines: number, level: number
   xp += level * 10
   return xp
 }
+
+export const getRankFromScoreAlias = getRankByScore
+
+// Battle Rank System (based on battle points, not score)
+export interface BattleRank {
+  id: number
+  name: string
+  description: string
+  minPoints: number
+  maxPoints: number
+  color: string
+  icon: string
+}
+
+export const BATTLE_RANKS: BattleRank[] = [
+  {
+    id: 1,
+    name: "Bronze Beginner",
+    description: "Тулааны анхны алхам. Туршлага хуримтлуулж эхэл!",
+    minPoints: 0,
+    maxPoints: 799,
+    color: "#CD7F32",
+    icon: "/battlerankavrk/bronze-beginner.jpg",
+  },
+  {
+    id: 2,
+    name: "Bronze Fighter",
+    description: "Bronze ангилалд тогтвортой байна. Цааш урагш!",
+    minPoints: 800,
+    maxPoints: 1199,
+    color: "#CD7F32",
+    icon: "/battlerankavrk/bronze-fighter.jpg",
+  },
+  {
+    id: 3,
+    name: "Silver Warrior",
+    description: "Silver ангилалд хүрлээ. Илүү хүчтэй өрсөлдөгчид хүлээж байна!",
+    minPoints: 1200,
+    maxPoints: 1599,
+    color: "#C0C0C0",
+    icon: "/battlerankavrk/silver-warrior.jpg",
+  },
+  {
+    id: 4,
+    name: "Silver Champion",
+    description: "Silver-ийн дээд түвшин. Gold руу замаа нээж байна!",
+    minPoints: 1600,
+    maxPoints: 1999,
+    color: "#C0C0C0",
+    icon: "/battlerankavrk/silver-champion.jpg",
+  },
+  {
+    id: 5,
+    name: "Gold Contender",
+    description: "Gold ангилалд орлоо! Мэргэжлийн түвшинд ойртож байна.",
+    minPoints: 2000,
+    maxPoints: 2399,
+    color: "#FFD700",
+    icon: "/battlerankavrk/gold-contender.jpg",
+  },
+  {
+    id: 6,
+    name: "Gold Master",
+    description: "Gold-ийн мастер! Platinum хүлээж байна.",
+    minPoints: 2400,
+    maxPoints: 2799,
+    color: "#FFD700",
+    icon: "/battlerankavrk/gold-master.jpg",
+  },
+  {
+    id: 7,
+    name: "Platinum Elite",
+    description: "Элит ангилалд орлоо. Дэлхийн шилдэг тоглогчдын эгнээнд!",
+    minPoints: 2800,
+    maxPoints: 3199,
+    color: "#E5E4E2",
+    icon: "/battlerankavrk/platinum-elite.jpg",
+  },
+  {
+    id: 8,
+    name: "Platinum Legend",
+    description: "Platinum домог! Diamond хүлээж байна.",
+    minPoints: 3200,
+    maxPoints: 3599,
+    color: "#E5E4E2",
+    icon: "/battlerankavrk/platinum-legend.jpg",
+  },
+  {
+    id: 9,
+    name: "Diamond Prodigy",
+    description: "Diamond ангилал! Дэлхийн 1% тоглогчдын эгнээнд!",
+    minPoints: 3600,
+    maxPoints: 3999,
+    color: "#B9F2FF",
+    icon: "/battlerankavrk/diamond-prodigy.jpg",
+  },
+  {
+    id: 10,
+    name: "Diamond Immortal",
+    description: "Diamond-ийн дээд түвшин. Хэн ч таныг дийлэхгүй!",
+    minPoints: 4000,
+    maxPoints: 999999,
+    color: "#B9F2FF",
+    icon: "/battlerankavrk/diamond-immortal.jpg",
+  },
+]
+
+export function getRankByBattlePoints(points: number): BattleRank {
+  for (let i = BATTLE_RANKS.length - 1; i >= 0; i--) {
+    if (points >= BATTLE_RANKS[i].minPoints) {
+      return BATTLE_RANKS[i]
+    }
+  }
+  return BATTLE_RANKS[0]
+}
+
+export function getNextBattleRank(currentPoints: number): BattleRank | null {
+  const currentRank = getRankByBattlePoints(currentPoints)
+  const nextRankIndex = BATTLE_RANKS.findIndex((r) => r.id === currentRank.id) + 1
+  return nextRankIndex < BATTLE_RANKS.length ? BATTLE_RANKS[nextRankIndex] : null
+}
+
+export function getBattlePointsProgress(currentPoints: number): { current: number; next: number; percentage: number } {
+  const currentRank = getRankByBattlePoints(currentPoints)
+  const nextRank = getNextBattleRank(currentPoints)
+
+  if (!nextRank) {
+    return { current: currentPoints, next: currentPoints, percentage: 100 }
+  }
+
+  const pointsInCurrentRank = currentPoints - currentRank.minPoints
+  const pointsNeededForNext = nextRank.minPoints - currentRank.minPoints
+  const percentage = (pointsInCurrentRank / pointsNeededForNext) * 100
+
+  return {
+    current: pointsInCurrentRank,
+    next: pointsNeededForNext,
+    percentage: Math.min(percentage, 100),
+  }
+}
+
+export const getRankFromScore = getRankByScore
