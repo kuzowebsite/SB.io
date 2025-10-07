@@ -183,13 +183,8 @@ export default function OnlineBattlePage() {
 
   const [opponentFinishedFirst, setOpponentFinishedFirst] = useState(false)
   const [opponentFinalScore, setOpponentFinalScore] = useState<number | null>(null)
-
-  useEffect(() => {
-    audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
-    return () => {
-      audioContextRef.current?.close()
-    }
-  }, [])
+  const [surrendered, setSurrendered] = useState(false)
+  const [waitingForOpponent, setWaitingForOpponent] = useState(false)
 
   const playLineClearSound = useCallback(() => {
     if (!audioContextRef.current) return
@@ -221,6 +216,22 @@ export default function OnlineBattlePage() {
     gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 1)
     oscillator.start(ctx.currentTime)
     oscillator.stop(ctx.currentTime + 1)
+  }, [])
+
+  const handleSurrender = useCallback(() => {
+    if (gameOver || surrendered) return
+
+    console.log("[v0] Player surrendered")
+    setSurrendered(true)
+    setGameOver(true)
+    playGameOverSound()
+  }, [gameOver, surrendered, playGameOverSound])
+
+  useEffect(() => {
+    audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
+    return () => {
+      audioContextRef.current?.close()
+    }
   }, [])
 
   useEffect(() => {
@@ -282,7 +293,38 @@ export default function OnlineBattlePage() {
   }, [opponentId])
 
   useEffect(() => {
-    if (!gameOver || !user || !opponentId || !db || battlePointsChange !== null) return
+    if (gameOver && !opponentState.gameOver && !surrendered) {
+      setWaitingForOpponent(true)
+      console.log("[v0] I finished first with score:", score, "- waiting for opponent")
+    }
+  }, [gameOver, opponentState.gameOver, score, surrendered])
+
+  useEffect(() => {
+    if (waitingForOpponent && !opponentState.gameOver && opponentState.score > score) {
+      console.log("[v0] Opponent exceeded my score while I was waiting - they win!")
+      // Opponent wins immediately
+      setWaitingForOpponent(false)
+      // No need to setGameOver here, the battle result update will handle it
+    }
+  }, [waitingForOpponent, opponentState.score, opponentState.gameOver, score])
+
+  useEffect(() => {
+    if (opponentState.gameOver && !gameOver && opponentFinalScore === null) {
+      setOpponentFinishedFirst(true)
+      setOpponentFinalScore(opponentState.score)
+      console.log("[v0] Opponent finished first with score:", opponentState.score)
+    }
+  }, [opponentState.gameOver, opponentState.score, gameOver, opponentFinalScore])
+
+  useEffect(() => {
+    // Only update battle result when:
+    // 1. Both players finished, OR
+    // 2. One player surrendered, OR
+    // 3. Opponent exceeded my score while I was waiting
+    const bothFinished = gameOver && opponentState.gameOver
+    const shouldUpdateResult = bothFinished || surrendered || (waitingForOpponent && opponentState.score > score)
+
+    if (!shouldUpdateResult || !user || !opponentId || !db || battlePointsChange !== null) return
     if (!myProfile || !opponentProfile) {
       console.log("[v0] Waiting for profiles to load before updating battle result")
       return
@@ -290,14 +332,27 @@ export default function OnlineBattlePage() {
 
     const updateBattle = async () => {
       try {
-        const iWon = score > opponentState.score
-        setBattleResult(iWon ? "win" : "loss")
+        let iWon: boolean
 
-        console.log("[v0] Battle ended - both players finished:", {
-          iWon,
-          myScore: score,
-          opponentScore: opponentState.score,
-        })
+        if (surrendered) {
+          // If I surrendered, I always lose
+          iWon = false
+          console.log("[v0] I surrendered - I lose")
+        } else if (waitingForOpponent && opponentState.score > score) {
+          // If opponent exceeded my score while I was waiting, they win
+          iWon = false
+          console.log("[v0] Opponent exceeded my score while waiting - they win")
+        } else {
+          // Normal case: compare scores
+          iWon = score > opponentState.score
+          console.log("[v0] Battle ended - comparing scores:", {
+            iWon,
+            myScore: score,
+            opponentScore: opponentState.score,
+          })
+        }
+
+        setBattleResult(iWon ? "win" : "loss")
 
         if (iWon) {
           console.log("[v0] Updating battle result - I won")
@@ -344,12 +399,14 @@ export default function OnlineBattlePage() {
   }, [
     gameOver,
     opponentState.gameOver,
+    surrendered,
+    waitingForOpponent,
+    opponentState.score,
     user,
     opponentId,
     myProfile,
     opponentProfile,
     score,
-    opponentState.score,
     opponentState.lines,
     lines,
     elapsedTime,
@@ -508,14 +565,6 @@ export default function OnlineBattlePage() {
       unsubscribe()
     }
   }, [matchId, opponentId])
-
-  useEffect(() => {
-    if (opponentState.gameOver && !gameOver && opponentFinalScore === null) {
-      setOpponentFinishedFirst(true)
-      setOpponentFinalScore(opponentState.score)
-      console.log("[v0] Opponent finished first with score:", opponentState.score)
-    }
-  }, [opponentState.gameOver, opponentState.score, gameOver, opponentFinalScore])
 
   const checkCollision = useCallback(
     (piece: Tetromino, pos: Position): boolean => {
@@ -795,7 +844,18 @@ export default function OnlineBattlePage() {
   }
 
   const formatTime = (seconds: number) => {
-    return `${seconds}s`
+    const hours = Math.floor(seconds / 3600)
+    const minutes = Math.floor((seconds % 3600) / 60)
+    const secs = seconds % 60
+    const ms = Math.floor((Date.now() - startTime) % 1000)
+
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}.${ms.toString().padStart(3, "0")}`
+    } else if (minutes > 0) {
+      return `${minutes}:${secs.toString().padStart(2, "0")}.${ms.toString().padStart(3, "0")}`
+    } else {
+      return `${secs}.${ms.toString().padStart(3, "0")}s`
+    }
   }
 
   useEffect(() => {
@@ -1008,6 +1068,17 @@ export default function OnlineBattlePage() {
 
   return (
     <div className="min-h-screen flex items-start sm:items-center justify-center px-2 py-2 sm:p-4 lg:p-8 bg-black fixed inset-0 overflow-hidden">
+      {waitingForOpponent && !opponentState.gameOver && (
+        <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-none">
+          <Card className="bg-blue-900/90 border-blue-600 p-4 text-center">
+            <div className="text-xl font-bold text-white mb-2">Өрсөлдөгч дуусаагүй байна</div>
+            <div className="text-3xl font-bold text-yellow-400">{score}</div>
+            <div className="text-sm text-zinc-300 mt-2">Таны оноо - Хүлээж байна...</div>
+            <div className="text-xs text-zinc-400 mt-1">Өрсөлдөгч: {opponentState.score} оноо</div>
+          </Card>
+        </div>
+      )}
+
       {opponentFinishedFirst && !gameOver && opponentFinalScore !== null && (
         <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-none">
           <Card className="bg-red-900/90 border-red-600 p-4 text-center">
@@ -1087,10 +1158,20 @@ export default function OnlineBattlePage() {
             style={{ imageRendering: "pixelated", touchAction: "none" }}
           />
 
+          {!gameOver && !surrendered && (
+            <Button onClick={handleSurrender} variant="destructive" className="w-full text-xs sm:text-sm">
+              Бууж өгөх
+            </Button>
+          )}
+
           {gameOver && battleResult && battlePointsChange !== null && (
             <Card className="p-2 sm:p-4 bg-zinc-900 border-zinc-700 text-center">
-              <div className="text-2xl sm:text-4xl mb-2">{battleResult === "win" ? "🏆" : "💀"}</div>
-              <h3 className="text-lg sm:text-xl font-bold mb-2">{battleResult === "win" ? "Хожлоо!" : "Хожигдлоо!"}</h3>
+              <div className="text-2xl sm:text-4xl mb-2">
+                {surrendered ? "🏳️" : battleResult === "win" ? "🏆" : "💀"}
+              </div>
+              <h3 className="text-lg sm:text-xl font-bold mb-2">
+                {surrendered ? "Бууж өгсөн" : battleResult === "win" ? "Хожлоо!" : "Хожигдлоо!"}
+              </h3>
               <div
                 className={`text-xl sm:text-2xl font-bold mb-2 ${battlePointsChange > 0 ? "text-green-500" : "text-red-500"}`}
               >
