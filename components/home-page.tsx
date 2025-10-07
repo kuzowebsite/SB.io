@@ -98,12 +98,12 @@ export default function HomePage() {
                   SB CHANNEL
                 </Button>
               </Link>
-              <Link href="/merch">
+              <Link href="/events">
                 <Button
                   variant="ghost"
                   className="text-base lg:text-lg font-semibold hover:text-accent transition-colors"
                 >
-                  MERCH
+                  EVENTS
                 </Button>
               </Link>
               <Link href="/about">
@@ -184,9 +184,9 @@ export default function HomePage() {
                   SB CHANNEL
                 </Button>
               </Link>
-              <Link href="/merch">
+              <Link href="/events">
                 <Button variant="ghost" className="w-full">
-                  MERCH
+                  EVENTS
                 </Button>
               </Link>
               <Link href="/about">
