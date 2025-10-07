@@ -13,14 +13,7 @@ import {
   subscribeToOnlinePlayers,
   type LeaderboardEntry,
 } from "@/lib/game-service"
-import {
-  getRankByScore,
-  RANKS,
-  BATTLE_RANKS,
-  getLevelFromXP,
-  type Rank,
-  type BattleRank,
-} from "@/lib/rank-system"
+import { getRankByScore, RANKS, BATTLE_RANKS, getLevelFromXP, type Rank, type BattleRank } from "@/lib/rank-system"
 import { ArrowLeft, AlertCircle } from "lucide-react"
 
 export default function TetraChannelPage() {
@@ -441,15 +434,21 @@ function LeaderboardsTab() {
                       <>
                         <div className="text-center">
                           <div className="text-muted-foreground text-[8px] sm:text-xs">Battle Points</div>
-                          <div className="font-mono font-semibold text-primary text-[10px] sm:text-base">1000</div>
+                          <div className="font-mono font-semibold text-primary text-[10px] sm:text-base">
+                            {(entry.battlePoints || 0).toLocaleString()}
+                          </div>
                         </div>
                         <div className="text-center">
                           <div className="text-muted-foreground text-[8px] sm:text-xs">Wins</div>
-                          <div className="font-mono font-semibold text-green-500 text-[10px] sm:text-base">0</div>
+                          <div className="font-mono font-semibold text-green-500 text-[10px] sm:text-base">
+                            {entry.battleWins || 0}
+                          </div>
                         </div>
                         <div className="text-center">
                           <div className="text-muted-foreground text-[8px] sm:text-xs">Losses</div>
-                          <div className="font-mono font-semibold text-red-500 text-[10px] sm:text-base">0</div>
+                          <div className="font-mono font-semibold text-red-500 text-[10px] sm:text-base">
+                            {entry.battleLosses || 0}
+                          </div>
                         </div>
                       </>
                     )}
