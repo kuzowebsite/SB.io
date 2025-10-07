@@ -448,33 +448,31 @@ export default function OnlineBattlePage() {
 
         console.log("[v0] Battle result:", { iWon, myScore: score, opponentScore: opponentState.score })
 
+        const formatTime = () => {
+    const totalMs = Date.now() - startTime
+    const seconds = Math.floor(totalMs / 1000)
+    const minutes = Math.floor(seconds / 60)
+    const remainingSeconds = seconds % 60
+    const hours = Math.floor(minutes / 60)
+    const remainingMinutes = minutes % 60
+
+    if (hours > 0) {
+      return `${hours.toString().padStart(2, "0")}:${remainingMinutes
+        .toString()
+        .padStart(2, "0")}:${remainingSeconds.toString().padStart(2, "0")}`
+    } else {
+      return `${remainingMinutes.toString().padStart(2, "0")}:${remainingSeconds
+        .toString()
+        .padStart(2, "0")}`
+    }
+  }
         setBattleResult(iWon ? "win" : "loss")
 
-        const myTime = finishTime ? Math.floor((finishTime - startTime) / 1000) : 0
-        const opponentTime = opponentState.finishTime ? Math.floor((opponentState.finishTime - startTime) / 1000) : 0
-
-        await updateBattleResult(iWon ? user.uid : opponentId, iWon ? opponentId : user.uid, {
-          winnerScore: iWon ? score : opponentState.score,
-          winnerLines: iWon ? lines : opponentState.lines,
-          winnerTime: iWon ? myTime : opponentTime,
-          loserScore: iWon ? opponentState.score : score,
-          loserLines: iWon ? opponentState.lines : lines,
-          loserTime: iWon ? opponentTime : myTime,
-        })
-
-        // Get updated profile to calculate points change
         const updatedProfile = await getUserProfile(user.uid)
-        if (updatedProfile && myProfile) {
-          const pointsChange = updatedProfile.battlePoints - myProfile.battlePoints
-          setBattlePointsChange(pointsChange)
+        if (updatedProfile) {
           setMyProfile(updatedProfile)
           const newRank = getRankByBattlePoints(updatedProfile.battlePoints || 1000)
           setMyRank(newRank)
-          console.log("[v0] Battle points updated:", {
-            oldPoints: myProfile.battlePoints,
-            newPoints: updatedProfile.battlePoints,
-            change: pointsChange,
-          })
         }
       } catch (err) {
         console.error("[v0] Error updating battle result:", err)
@@ -495,9 +493,7 @@ export default function OnlineBattlePage() {
     startTime,
     battleResult,
     myProfile,
-    lines,
-    opponentState.lines,
-    opponentState.finishTime,
+    opponentProfile,
   ])
 
   useEffect(() => {
@@ -1085,7 +1081,7 @@ export default function OnlineBattlePage() {
             ref={opponentCanvasRef}
             width={BOARD_WIDTH * OPPONENT_BLOCK_SIZE}
             height={BOARD_HEIGHT * OPPONENT_BLOCK_SIZE}
-            className="border border-zinc-800 rounded w-20 sm:w-24 md:w-28 lg:w-52 h-auto"
+            className="border border-zinc-800 rounded w-20 sm:w-24 md:w-28 h-auto"
           />
           <div className="text-[9px] sm:text-xs text-zinc-400 mt-1">
             {opponentState.score} | {opponentState.lines}L
@@ -1135,46 +1131,90 @@ export default function OnlineBattlePage() {
             className="border-2 border-zinc-800 rounded w-[180px] sm:w-[240px] md:w-[300px] lg:w-[360px] xl:w-[420px] h-auto"
             style={{ imageRendering: "pixelated", touchAction: "none" }}
           />
+
+          {!gameOver && !surrendered && (
+            <Button onClick={handleSurrender} variant="destructive" className="w-full text-xs sm:text-sm">
+              Бууж өгөх
+            </Button>
+          )}
+
+          {gameOver && battleResult && battlePointsChange !== null && (
+            <Card className="p-2 sm:p-4 bg-zinc-900 border-zinc-700 text-center">
+              <div className="text-2xl sm:text-4xl mb-2">
+                {surrendered ? "🏳️" : opponentState.surrendered ? "🏆" : battleResult === "win" ? "🏆" : "💀"}
+              </div>
+              <h3 className="text-lg sm:text-xl font-bold mb-2">
+                {surrendered
+                  ? "Бууж өгсөн"
+                  : opponentState.surrendered
+                    ? "Өрсөлдөгч бууж өгсөн!"
+                    : battleResult === "win"
+                      ? "Хожлоо!"
+                      : "Хожигдлоо!"}
+              </h3>
+              <div
+                className={`text-xl sm:text-2xl font-bold mb-2 ${battlePointsChange > 0 ? "text-green-500" : "text-red-500"}`}
+              >
+                {battlePointsChange > 0 ? "+" : ""}
+                {battlePointsChange} BP
+              </div>
+              {myRank && myProfile && (
+                <div className="text-sm text-zinc-400">
+                  <div style={{ color: myRank.color }}>{myRank.name}</div>
+                  <div>{myProfile.battlePoints} Battle Points</div>
+                </div>
+              )}
+              <Button onClick={() => router.push("/")} className="mt-4 w-full">
+                Буцах
+              </Button>
+            </Card>
+          )}
+
+          <div className="flex flex-col justify-center items-center gap-2 mt-2 md:hidden">
+            <div className="flex justify-center gap-1.5 sm:gap-2">
+              <Button onClick={moveLeft} className="w-12 h-12 sm:w-14 sm:h-14 text-xl sm:text-2xl bg-zinc-700 p-0">
+                ◀
+              </Button>
+              <Button onClick={moveRight} className="w-12 h-12 sm:w-14 sm:h-14 text-xl sm:text-2xl bg-zinc-700 p-0">
+                ▶
+              </Button>
+              <Button onClick={moveDown} className="w-12 h-12 sm:w-14 sm:h-14 text-xl sm:text-2xl bg-zinc-700 p-0">
+                ▼
+              </Button>
+              <Button onClick={rotatePiece} className="w-12 h-12 sm:w-14 sm:h-14 text-xl sm:text-2xl bg-blue-700 p-0">
+                ⟳
+              </Button>
+            </div>
+            <div className="flex justify-center gap-1.5 sm:gap-2">
+              <Button
+                onClick={holdCurrentPiece}
+                className="w-12 h-12 sm:w-14 sm:h-14 text-xl sm:text-2xl bg-yellow-700 p-0"
+              >
+                H
+              </Button>
+              <Button onClick={hardDrop} className="w-12 h-12 sm:w-14 sm:h-14 text-xl sm:text-2xl bg-red-700 p-0">
+                ⇩
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1 sm:gap-2 w-16 sm:w-24 md:w-32 lg:w-52 flex-shrink-0">
+          <Card className="p-1 sm:p-2 bg-zinc-900 border-zinc-800">
+            <h2 className="text-[10px] sm:text-xs lg:text-sm font-bold mb-1 sm:mb-2 text-white">Next</h2>
+            <div className="space-y-1 sm:space-y-2">
+              {nextQueue.map((piece, index) => (
+                <div
+                  key={index}
+                  className="bg-black rounded border border-zinc-800 p-0.5 sm:p-1 flex items-center justify-center h-12 sm:h-14"
+                >
+                  {renderPreview(piece, 8)}
+                </div>
+              ))}
+            </div>
+          </Card>
         </div>
       </div>
-
-      {!gameOver && !surrendered && (
-        <Button onClick={handleSurrender} variant="destructive" className="w-full text-xs sm:text-sm">
-          Бууж өгөх
-        </Button>
-      )}
-
-      {gameOver && battleResult && battlePointsChange !== null && (
-        <Card className="p-2 sm:p-4 bg-zinc-900 border-zinc-700 text-center">
-          <div className="text-2xl sm:text-4xl mb-2">
-            {surrendered ? "🏳️" : opponentState.surrendered ? "🏆" : battleResult === "win" ? "🏆" : "💀"}
-          </div>
-          <h3 className="text-lg sm:text-xl font-bold mb-2">
-            {surrendered
-              ? "Бууж өгсөн"
-              : opponentState.surrendered
-                ? "Өрсөлдөгч бууж өгсөн!"
-                : battleResult === "win"
-                  ? "Хожлоо!"
-                  : "Хожигдлоо!"}
-          </h3>
-          <div
-            className={`text-xl sm:text-2xl font-bold mb-2 ${battlePointsChange > 0 ? "text-green-500" : "text-red-500"}`}
-          >
-            {battlePointsChange > 0 ? "+" : ""}
-            {battlePointsChange} BP
-          </div>
-          {myRank && myProfile && (
-            <div className="text-sm text-zinc-400">
-              <div style={{ color: myRank.color }}>{myRank.name}</div>
-              <div>{myProfile.battlePoints} Battle Points</div>
-            </div>
-          )}
-          <Button onClick={() => router.push("/")} className="mt-4 w-full">
-            Буцах
-          </Button>
-        </Card>
-      )}
     </div>
   )
 }
