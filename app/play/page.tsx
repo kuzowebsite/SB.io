@@ -121,7 +121,7 @@ export default function PlayPage() {
               </Link>
 
               {/* Custom */}
-              <Link href="/play/custom" className="group md:col-span-2 lg:col-span-1">
+              <Link href="/play/custom-mode" className="group md:col-span-2 lg:col-span-1">
                 <Card className="relative bg-zinc-950 border-zinc-800 hover:border-purple-500/50 border-2 p-6 sm:p-8 transition-all duration-300 cursor-pointer h-full overflow-hidden group-hover:shadow-[0_0_30px_rgba(168,85,247,0.3)]">
                   <div className="absolute top-4 right-4 opacity-20 group-hover:opacity-40 transition-opacity">
                     <svg className="w-16 h-16 sm:w-20 sm:h-20 text-purple-500" fill="currentColor" viewBox="0 0 24 24">
