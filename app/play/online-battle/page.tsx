@@ -440,7 +440,13 @@ export default function OnlineBattlePage() {
     const gameStateData = {
       board: JSON.stringify(board),
       boardColors: JSON.stringify(boardColors.current),
-      currentPiece,
+      currentPiece: currentPiece
+        ? {
+            shape: JSON.stringify(currentPiece.shape),
+            color: currentPiece.color,
+            type: currentPiece.type,
+          }
+        : null,
       position,
       score,
       lines,
@@ -476,7 +482,13 @@ export default function OnlineBattlePage() {
           setOpponentState({
             board: data.board ? JSON.parse(data.board) : createEmptyBoard(),
             boardColors: data.boardColors ? JSON.parse(data.boardColors) : createEmptyColorBoard(),
-            currentPiece: data.currentPiece || null,
+            currentPiece: data.currentPiece
+              ? {
+                  shape: JSON.parse(data.currentPiece.shape),
+                  color: data.currentPiece.color,
+                  type: data.currentPiece.type,
+                }
+              : null,
             position: data.position || { x: 0, y: 0 },
             score: data.score || 0,
             lines: data.lines || 0,
